@@ -1,0 +1,11 @@
+# Ignore everything by default
+*
+
+# Include these directories
+!/.gitignore
+!docs/
+!docs/**
+!mt5/MQL5/Experts/
+!mt5/MQL5/Experts/**
+!mt5/MQL5/Scripts/
+!mt5/MQL5/Scripts/**
