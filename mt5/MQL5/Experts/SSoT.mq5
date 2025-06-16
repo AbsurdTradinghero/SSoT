@@ -9,6 +9,7 @@
 
 //--- Include Files
 #include <SSoT/TestPanel_Simple.mqh>  // Main test panel integration
+#include <SSoT/DataFetcher.mqh>       // Data fetching functionality
 
 //--- Input Parameters
 input group "=== Main Configuration ==="
@@ -274,12 +275,46 @@ int OnInit()
         delete g_test_panel;
         g_test_panel = NULL;
         return INIT_FAILED;
-    }
-
-    // Show the visual test panel immediately
+    }    // Show the visual test panel immediately
     g_test_panel.CreateVisualPanel();
     g_test_panel.UpdateVisualPanel();
     ChartRedraw();
+
+    // Initialize data fetcher
+    if(!CDataFetcher::Initialize())
+    {
+        Print("⚠️ Warning: Data fetcher initialization failed");
+    }
+
+    // Perform initial data population if main database is writable
+    if(g_main_db != INVALID_HANDLE)
+    {
+        Print("📈 Performing initial data population...");
+        
+        for(int i = 0; i < ArraySize(g_symbols); i++)
+        {
+            for(int j = 0; j < ArraySize(g_timeframes); j++)
+            {
+                string symbol = g_symbols[i];
+                ENUM_TIMEFRAMES tf = g_timeframes[j];
+                
+                // Initial fetch of historical data
+                int fetched_count = CDataFetcher::FetchData(symbol, tf, MaxBarsToFetch);
+                if(fetched_count > 0)
+                {
+                    Print("✅ Initial fetch: ", fetched_count, " bars for ", symbol, " ", CDataFetcher::TimeframeToString(tf));
+                    
+                    // Store to database
+                    if(!CDataFetcher::FetchDataToDatabase(g_main_db, symbol, tf, MaxBarsToFetch))
+                    {
+                        Print("⚠️ Warning: Failed to store initial data for ", symbol, " ", CDataFetcher::TimeframeToString(tf));
+                    }
+                }
+            }
+        }
+        
+        Print("📊 Initial data population completed");
+    }
 
     // Start monitoring
     EventSetTimer(1);
@@ -368,10 +403,65 @@ void OnTimer()
 {
     datetime current_time = TimeCurrent();
     
-    // Basic timer functionality with test panel
+    // Data validation and fetching logic
+    if(current_time - g_last_validation > ValidationInterval)
+    {
+        g_last_validation = current_time;
+        
+        // Fetch fresh data for configured symbols and timeframes
+        if(g_main_db != INVALID_HANDLE)
+        {
+            Print("📈 Fetching fresh market data...");
+            
+            for(int i = 0; i < ArraySize(g_symbols); i++)
+            {
+                for(int j = 0; j < ArraySize(g_timeframes); j++)
+                {
+                    string symbol = g_symbols[i];
+                    ENUM_TIMEFRAMES tf = g_timeframes[j];
+                    
+                    // Fetch data to main database
+                    if(!CDataFetcher::FetchDataToDatabase(g_main_db, symbol, tf, MaxBarsToFetch))
+                    {
+                        Print("⚠️ Warning: Failed to fetch data for ", symbol, " ", CDataFetcher::TimeframeToString(tf));
+                    }
+                    else
+                    {
+                        Print("✅ Fetched data for ", symbol, " ", CDataFetcher::TimeframeToString(tf));
+                    }
+                }
+            }
+            
+            Print("📊 Data fetch cycle completed");
+        }
+    }
+    
+    // Test mode flow processing
+    if(g_test_mode_active && current_time - g_last_test_flow > TestFlowInterval)
+    {
+        g_last_test_flow = current_time;
+        
+        if(g_main_db != INVALID_HANDLE && g_test_input_db != INVALID_HANDLE && g_test_output_db != INVALID_HANDLE)
+        {
+            Print("🧪 Running test mode data flow...");
+            
+            if(!CDataFetcher::ProcessTestModeFlow(g_main_db, g_test_input_db, g_test_output_db, g_symbols, g_timeframes))
+            {
+                Print("⚠️ Warning: Test mode flow processing failed");
+            }
+            else
+            {
+                Print("✅ Test mode flow processed successfully");
+            }
+        }
+    }
+    
+    // Display update logic
     static datetime last_display = 0;
     
-    if(current_time - last_display > 30) {        Print("📊 SSoT Monitor - Mode: ", g_test_mode_active ? "TEST" : "LIVE");
+    if(current_time - last_display > 30) 
+    {
+        Print("📊 SSoT Monitor - Mode: ", g_test_mode_active ? "TEST" : "LIVE");
         
         // Use test panel to display info
         if(g_test_panel != NULL) {

@@ -474,27 +474,123 @@ void CreateSampleTestData(int db_handle)
 //+------------------------------------------------------------------+
 bool CreateDBInfoForExistingDatabase(int db_handle, string db_type)
 {
-    // Check if DBInfo table exists
-    int check_request = DatabasePrepare(db_handle, "SELECT COUNT(*) FROM DBInfo");
-    if(check_request != INVALID_HANDLE) {
-        // DBInfo table exists
+    Print("🔧 Checking/updating DBInfo schema for ", db_type, "...");
+    
+    // First, check if DBInfo table exists at all
+    int check_request = DatabasePrepare(db_handle, "SELECT name FROM sqlite_master WHERE type='table' AND name='DBInfo'");
+    bool dbinfo_exists = false;
+    if(check_request != INVALID_HANDLE && DatabaseRead(check_request)) {
+        dbinfo_exists = true;
         DatabaseFinalize(check_request);
-        
-        // Check if it has data
-        check_request = DatabasePrepare(db_handle, "SELECT COUNT(*) FROM DBInfo WHERE id=1");
-        if(check_request != INVALID_HANDLE && DatabaseRead(check_request)) {
-            int count = 0;
-            DatabaseColumnInteger(check_request, 0, count);
-            DatabaseFinalize(check_request);
-            
-            if(count > 0) {
-                Print("✅ DBInfo already exists for ", db_type);
-                return true;
-            }
-        }
+    } else if(check_request != INVALID_HANDLE) {
+        DatabaseFinalize(check_request);
     }
     
-    // Try to create DBInfo table
+    if(dbinfo_exists) {
+        Print("📋 DBInfo table exists, checking schema for ", db_type);
+        
+        // Check if the table has the new schema (id and broker_name columns)
+        check_request = DatabasePrepare(db_handle, "PRAGMA table_info(DBInfo)");
+        bool has_id_column = false;
+        bool has_broker_name_column = false;
+        
+        if(check_request != INVALID_HANDLE) {
+            while(DatabaseRead(check_request)) {
+                string column_name;
+                DatabaseColumnText(check_request, 1, column_name); // Column name is in index 1
+                if(column_name == "id") has_id_column = true;
+                if(column_name == "broker_name") has_broker_name_column = true;
+            }
+            DatabaseFinalize(check_request);
+        }
+        
+        if(has_id_column && has_broker_name_column) {
+            Print("✅ DBInfo schema is current for ", db_type);
+            
+            // Check if it has data
+            check_request = DatabasePrepare(db_handle, "SELECT COUNT(*) FROM DBInfo WHERE id=1");
+            if(check_request != INVALID_HANDLE && DatabaseRead(check_request)) {
+                int count = 0;
+                DatabaseColumnInteger(check_request, 0, count);
+                DatabaseFinalize(check_request);
+                
+                if(count > 0) {
+                    Print("✅ DBInfo data already exists for ", db_type);
+                    return true;
+                }
+            }
+        } else {
+            Print("🔄 DBInfo schema needs migration for ", db_type);
+              // Backup existing data if any
+            string old_timezone = "", old_schema_version = "";
+            datetime old_created_at = 0, old_last_updated = 0;
+            
+            check_request = DatabasePrepare(db_handle, "SELECT timezone, schema_version, created_at, last_updated FROM DBInfo LIMIT 1");
+            if(check_request != INVALID_HANDLE && DatabaseRead(check_request)) {
+                DatabaseColumnText(check_request, 0, old_timezone);
+                DatabaseColumnText(check_request, 1, old_schema_version);
+                
+                // Use temporary int variables for DatabaseColumnInteger
+                int temp_created_at = 0, temp_last_updated = 0;
+                DatabaseColumnInteger(check_request, 2, temp_created_at);
+                DatabaseColumnInteger(check_request, 3, temp_last_updated);
+                old_created_at = (datetime)temp_created_at;
+                old_last_updated = (datetime)temp_last_updated;
+                
+                DatabaseFinalize(check_request);
+                Print("📤 Backed up existing DBInfo data: ", old_timezone, ", ", old_schema_version);
+            } else if(check_request != INVALID_HANDLE) {
+                DatabaseFinalize(check_request);
+            }
+            
+            // Drop and recreate table with new schema
+            if(!DatabaseExecuteRetry(db_handle, "DROP TABLE IF EXISTS DBInfo_backup")) {
+                Print("⚠️ Warning: Could not create backup table for ", db_type);
+            }
+            
+            if(!DatabaseExecuteRetry(db_handle, "ALTER TABLE DBInfo RENAME TO DBInfo_backup")) {
+                Print("⚠️ Warning: Could not rename old DBInfo table for ", db_type);
+            }
+            
+            // Create new table with proper schema
+            string sql_dbinfo = 
+                "CREATE TABLE IF NOT EXISTS DBInfo ("
+                "id INTEGER PRIMARY KEY, "
+                "broker_name TEXT NOT NULL, "
+                "timezone TEXT NOT NULL, "
+                "schema_version TEXT NOT NULL, "
+                "created_at INTEGER NOT NULL, "
+                "last_updated INTEGER NOT NULL"
+                ");";
+            
+            if(!DatabaseExecuteRetry(db_handle, sql_dbinfo)) {
+                Print("❌ Failed to create new DBInfo table for ", db_type);
+                return false;
+            }
+            
+            // Restore data with new schema
+            string broker_name = AccountInfoString(ACCOUNT_COMPANY);
+            string timezone = old_timezone != "" ? old_timezone : "GMT+0";
+            string schema_version = "2.20";
+            datetime current_time = TimeCurrent();
+            datetime created_at = old_created_at > 0 ? old_created_at : current_time;
+            
+            string sql_insert = StringFormat(
+                "INSERT OR REPLACE INTO DBInfo (id, broker_name, timezone, schema_version, created_at, last_updated) "
+                "VALUES (1, '%s', '%s', '%s', %d, %d);", 
+                broker_name, timezone, schema_version, created_at, current_time
+            );
+            
+            if(!DatabaseExecuteRetry(db_handle, sql_insert)) {
+                Print("❌ Failed to migrate DBInfo data for ", db_type);
+                return false;
+            }
+            
+            Print("✅ DBInfo schema migrated successfully for ", db_type);
+            return true;
+        }
+    }    
+    // Try to create DBInfo table (this handles the case where table doesn't exist)
     string sql_dbinfo = 
         "CREATE TABLE IF NOT EXISTS DBInfo ("
         "id INTEGER PRIMARY KEY, "
@@ -509,7 +605,8 @@ bool CreateDBInfoForExistingDatabase(int db_handle, string db_type)
         Print("❌ Failed to create DBInfo table for ", db_type, " (may be READONLY)");
         return false;
     }
-      // Initialize DBInfo record
+      
+    // Initialize DBInfo record
     string broker_name = AccountInfoString(ACCOUNT_COMPANY);
     string schema_version = "2.20";
     
@@ -532,6 +629,6 @@ bool CreateDBInfoForExistingDatabase(int db_handle, string db_type)
         return false;
     }
     
-    Print("✅ Created DBInfo for ", db_type);
+    Print("✅ Created/updated DBInfo for ", db_type);
     return true;
 }

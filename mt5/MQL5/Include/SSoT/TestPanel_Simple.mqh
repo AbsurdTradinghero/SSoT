@@ -62,7 +62,6 @@ public:
     void CleanupVisualPanel(void);
     void ForceCleanupAllSSoTObjects(void);  // Emergency cleanup for all SSoT objects    //--- Clipboard Functions
     bool CopyToClipboard(void);
-    bool CopyExpertLogToClipboard(void);  // New: Copy Expert tab logs to clipboard
     string GenerateReportText(void);
     bool CopyTextToClipboard(string text);
     void HandleChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam);
@@ -82,9 +81,7 @@ public:
 private:
     //--- Visual Panel Helper Methods
     void CreateDatabaseStatusDisplay(void);
-    void CreateModeDisplay(void);
-    void CreateCopyButton(void);
-    void CreateExpertLogButton(void);  // New: Copy Expert tab logs to clipboard
+    void CreateModeDisplay(void);    void CreateCopyButton(void);
     void CreateProgressDisplay(void);
     
     //--- Enhanced Database Display Methods  
@@ -453,12 +450,8 @@ void CTestPanel::UpdateVisualPanel(void)
     // Update mode display
     CreateModeDisplay();    // Show combined database info and candle counts on chart
     CreateFullDatabaseDisplay();
-    
-    // Create copy button
+      // Create copy button
     CreateCopyButton();
-    
-    // Create expert log button
-    CreateExpertLogButton();
     
     ChartRedraw();
 }
@@ -496,7 +489,6 @@ void CTestPanel::CreateFullDatabaseDisplay(void)
                            40, start_y, clrLimeGreen);
     }      // Create copy buttons at bottom
     CreateCopyButton();
-    CreateExpertLogButton();
     
     // Force chart redraw to ensure objects are visible
     ChartRedraw(0);
@@ -854,34 +846,7 @@ void CTestPanel::CreateCopyButton(void)
     ObjectSetInteger(0, button_name, OBJPROP_YDISTANCE, 400);  // Bottom of panel
     ObjectSetInteger(0, button_name, OBJPROP_XSIZE, 180);      // Wider button
     ObjectSetInteger(0, button_name, OBJPROP_YSIZE, 30);       // Taller button
-    ObjectSetInteger(0, button_name, OBJPROP_SELECTABLE, false);
-    ObjectSetInteger(0, button_name, OBJPROP_HIDDEN, false);
-    ObjectSetInteger(0, button_name, OBJPROP_BACK, false);
-}
-
-//+------------------------------------------------------------------+
-//| Create Expert Log Copy Button                                   |
-//+------------------------------------------------------------------+
-void CTestPanel::CreateExpertLogButton(void)
-{
-    string button_name = m_object_prefix + "ExpertLogButton";
-    
-    if(ObjectFind(0, button_name) < 0)
-        ObjectCreate(0, button_name, OBJ_BUTTON, 0, 0, 0);
-    
-    ObjectSetString(0, button_name, OBJPROP_TEXT, "[LOG] Copy Expert Log");
-    ObjectSetString(0, button_name, OBJPROP_FONT, "Arial");
-    ObjectSetInteger(0, button_name, OBJPROP_FONTSIZE, 10);
-    ObjectSetInteger(0, button_name, OBJPROP_COLOR, clrWhite);
-    ObjectSetInteger(0, button_name, OBJPROP_BGCOLOR, clrDarkBlue);  // Different color from copy button
-    ObjectSetInteger(0, button_name, OBJPROP_BORDER_COLOR, clrWhite);
-    ObjectSetInteger(0, button_name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
-    ObjectSetInteger(0, button_name, OBJPROP_XDISTANCE, 710);  // Next to the main copy button
-    ObjectSetInteger(0, button_name, OBJPROP_YDISTANCE, 400);  // Same level as copy button
-    ObjectSetInteger(0, button_name, OBJPROP_XSIZE, 180);      // Same size as copy button
-    ObjectSetInteger(0, button_name, OBJPROP_YSIZE, 30);       // Same height as copy button
-    ObjectSetInteger(0, button_name, OBJPROP_SELECTABLE, false);
-    ObjectSetInteger(0, button_name, OBJPROP_HIDDEN, false);
+    ObjectSetInteger(0, button_name, OBJPROP_SELECTABLE, false);    ObjectSetInteger(0, button_name, OBJPROP_HIDDEN, false);
     ObjectSetInteger(0, button_name, OBJPROP_BACK, false);
 }
 
@@ -959,58 +924,8 @@ void CTestPanel::HandleChartEvent(const int id, const long &lparam, const double
                 
                 Print("[WARN] Direct copy failed - data available in terminal");
             }
-            
-            // Reset button state
+              // Reset button state
             ObjectSetInteger(0, m_object_prefix + "CopyButton", OBJPROP_STATE, false);
-            ChartRedraw(0);
-        }
-        else if(sparam == m_object_prefix + "ExpertLogButton")
-        {
-            Print("[LOG] Expert log copy button clicked!");
-            
-            if(CopyExpertLogToClipboard())
-            {
-                // Show success status
-                string status_name = m_object_prefix + "LogCopyStatus";
-                if(ObjectFind(0, status_name) < 0)
-                    ObjectCreate(0, status_name, OBJ_LABEL, 0, 0, 0);
-                
-                ObjectSetInteger(0, status_name, OBJPROP_XDISTANCE, 180);
-                ObjectSetInteger(0, status_name, OBJPROP_YDISTANCE, 190);
-                ObjectSetInteger(0, status_name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
-                ObjectSetInteger(0, status_name, OBJPROP_COLOR, clrLime);
-                ObjectSetInteger(0, status_name, OBJPROP_FONTSIZE, 8);
-                ObjectSetString(0, status_name, OBJPROP_FONT, "Arial");
-                ObjectSetString(0, status_name, OBJPROP_TEXT, "[LOG] Copied!");
-                ObjectSetInteger(0, status_name, OBJPROP_SELECTABLE, false);
-                ObjectSetInteger(0, status_name, OBJPROP_HIDDEN, false);
-                ObjectSetInteger(0, status_name, OBJPROP_BACK, false);
-                
-                Print("[OK] Expert log copied to clipboard successfully!");
-            }
-            else
-            {
-                // Show warning status
-                string status_name = m_object_prefix + "LogCopyStatus";
-                if(ObjectFind(0, status_name) < 0)
-                    ObjectCreate(0, status_name, OBJ_LABEL, 0, 0, 0);
-                
-                ObjectSetInteger(0, status_name, OBJPROP_XDISTANCE, 180);
-                ObjectSetInteger(0, status_name, OBJPROP_YDISTANCE, 190);
-                ObjectSetInteger(0, status_name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
-                ObjectSetInteger(0, status_name, OBJPROP_COLOR, clrYellow);
-                ObjectSetInteger(0, status_name, OBJPROP_FONTSIZE, 8);
-                ObjectSetString(0, status_name, OBJPROP_FONT, "Arial");
-                ObjectSetString(0, status_name, OBJPROP_TEXT, "[WARN] Check terminal");
-                ObjectSetInteger(0, status_name, OBJPROP_SELECTABLE, false);
-                ObjectSetInteger(0, status_name, OBJPROP_HIDDEN, false);
-                ObjectSetInteger(0, status_name, OBJPROP_BACK, false);
-                
-                Print("[WARN] Expert log copy failed - check terminal logs");
-            }
-            
-            // Reset button state
-            ObjectSetInteger(0, m_object_prefix + "ExpertLogButton", OBJPROP_STATE, false);
             ChartRedraw(0);
         }
     }
@@ -1732,23 +1647,3 @@ string CTestPanel::GetComprehensiveBreakdown(int db_handle, string db_name)
     return breakdown;
 }
 
-//+------------------------------------------------------------------+
-//| Copy Expert Log to Clipboard                                    |
-//+------------------------------------------------------------------+
-bool CTestPanel::CopyExpertLogToClipboard(void)
-{
-    string log_content = "";
-      // Since log buffer is not implemented, just provide database state
-    log_content = "=== MT5 EXPERT LOG EXPORT ===\n";
-    log_content += "Timestamp: " + TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS) + "\n";
-    log_content += "Expert: SSoT Database Monitor\n";
-    log_content += "Mode: " + (m_test_mode_active ? "TEST" : "LIVE") + "\n\n";
-    log_content += "=== RECENT DEBUG OUTPUT ===\n";
-    log_content += "Note: Full Expert log not accessible via MQL5.\n";
-    log_content += "Check Experts tab in MetaTrader 5 Terminal for complete log.\n\n";
-    log_content += "=== CURRENT DATABASE STATE ===\n";
-    log_content += GenerateReportText();
-    
-    return CopyTextToClipboard(log_content);
-}
-//+------------------------------------------------------------------+
