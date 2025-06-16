@@ -14,9 +14,10 @@
 !README.md
 !setup_pt.md
 
-# Build scripts
+# Build scripts and PowerShell scripts
 !build/
 !build/**
+!*.ps1
 
 # Documentation
 !Marton/
