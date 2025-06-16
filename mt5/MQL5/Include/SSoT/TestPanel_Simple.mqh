@@ -106,13 +106,11 @@ CTestPanel::CTestPanel(void)
 {
     m_object_prefix = "SSoT_";
     m_main_db = INVALID_HANDLE;
-    m_test_input_db = INVALID_HANDLE;    m_test_output_db = INVALID_HANDLE;
-    m_test_mode_active = false;
+    m_test_input_db = INVALID_HANDLE;    m_test_output_db = INVALID_HANDLE;    m_test_mode_active = false;
     m_display_enabled = true;
     m_last_display_update = 0;
     m_display_interval = 30; // Default 30 seconds
     m_panel_created = false;
-}
 }
 
 //+------------------------------------------------------------------+
@@ -141,10 +139,10 @@ bool CTestPanel::Initialize(bool test_mode, int main_db_handle, int test_input_h
         Print("[PANEL] TestPanel: Monitoring 3 databases (Main, Test Input, Test Output)");
     } else {
         Print("[PANEL] TestPanel: Initialized in LIVE MODE");
-        Print("[PANEL] TestPanel: Monitoring 1 database (Main only)");
-    }
+        Print("[PANEL] TestPanel: Monitoring 1 database (Main only)");    }
     
-    // Create visual panel    if(!CreateVisualPanel()) {
+    // Create visual panel
+    if(!CreateVisualPanel()) {
         Print("[WARN] Visual panel creation failed, continuing with console only");
     }
     

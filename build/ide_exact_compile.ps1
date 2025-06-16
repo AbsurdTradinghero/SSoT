@@ -146,14 +146,37 @@ try {
 # Parse compilation results
 Write-Host "`nParsing compilation results..."
 
+# Check for source-specific log file first (more detailed)
+$SourceLogPath = [System.IO.Path]::ChangeExtension($SourceFilePath, ".log")
+$TargetFileName = [System.IO.Path]::GetFileName($SourceFilePath)
+
+if (Test-Path $SourceLogPath) {
+    Write-Host "Found detailed source log: $($SourceLogPath.Replace($WorkspaceRoot + '\', ''))"
+    $SourceLogContent = Get-Content $SourceLogPath -ErrorAction SilentlyContinue
+    
+    if ($SourceLogContent) {
+        Write-Host "`nDetailed Compilation Output:"
+        Write-Host "=================================================================="
+        foreach ($Line in $SourceLogContent) {
+            if ($Line -match "error|Error|ERROR") {
+                Write-Host $Line -ForegroundColor Red
+            } elseif ($Line -match "warning|Warning|WARNING") {
+                Write-Host $Line -ForegroundColor Yellow
+            } else {
+                Write-Host $Line
+            }
+        }
+        Write-Host "=================================================================="
+    }
+}
+
 if (-not (Test-Path $MetaEditorLogPath)) {
-    Write-Host "ERROR: Compilation log not found: $MetaEditorLogPath" -ForegroundColor Red
+    Write-Host "ERROR: MetaEditor compilation log not found: $MetaEditorLogPath" -ForegroundColor Red
     exit 1
 }
 
 # Get the most recent log entry for our file
 $LogContent = Get-Content $MetaEditorLogPath -ErrorAction SilentlyContinue
-$TargetFileName = [System.IO.Path]::GetFileName($SourceFilePath)
 $RelevantLogLines = $LogContent | Where-Object { $_ -match [regex]::Escape($TargetFileName) } | Select-Object -Last 1
 
 if (-not $RelevantLogLines) {
