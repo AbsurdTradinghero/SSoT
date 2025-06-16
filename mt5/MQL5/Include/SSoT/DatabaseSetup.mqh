@@ -174,7 +174,16 @@ bool CDatabaseSetup::CreateTestOutputStructure(int db_handle)
         Print("❌ DatabaseSetup: Failed to create test output table");
         return false;
     }
-    
+    // Ensure DBInfo table exists before inserting metadata
+    string dbinfo_sql = "CREATE TABLE IF NOT EXISTS DBInfo ("
+                        "key TEXT PRIMARY KEY,"
+                        "value TEXT NOT NULL,"
+                        "updated_at INTEGER DEFAULT (strftime('%s', 'now'))"
+                        ");";
+    if(!DatabaseExecute(db_handle, dbinfo_sql)) {
+        Print("❌ DatabaseSetup: Failed to create DBInfo table for test output");
+        return false;
+    }
     CreateIndexes(db_handle, true);
     InsertMetadata(db_handle, "test_output");
     

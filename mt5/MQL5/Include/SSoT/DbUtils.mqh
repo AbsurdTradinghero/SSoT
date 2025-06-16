@@ -49,22 +49,17 @@ bool DatabaseExecuteRetry(int database_handle, string sql, int retries = 3, int 
 
 //+------------------------------------------------------------------+
 //| Initialize database with all optimizations                       |
-//| Extracted from SSoT_EA.mq5 - InitializeDatabase function        |
-//| Enhanced with automatic test mode database fallback logic       |
+//| Works with an already-opened database handle                     |
 //+------------------------------------------------------------------+
-bool InitializeDatabase(string database_name, int &db_handle)
+bool InitializeDatabase(string database_name, int db_handle)
 {
-    string actual_database_name = database_name;
-    
-    // Simple database initialization - no auto-fallback logic
-    Print("Initializing database: ", actual_database_name);
-    db_handle = DatabaseOpen(actual_database_name, DATABASE_OPEN_READWRITE | DATABASE_OPEN_CREATE);
-    
     if(db_handle == INVALID_HANDLE)
     {
-        Print("❌ Failed to open database: ", actual_database_name, ". Error: ", GetLastError());
+        Print("❌ InitializeDatabase: Invalid database handle for ", database_name);
         return false;
     }
+    
+    Print("🔧 Initializing database schema: ", database_name);
     
     // Enable WAL mode and optimizations
     if(!DatabaseExecuteRetry(db_handle, "PRAGMA journal_mode=WAL;"))
@@ -116,12 +111,12 @@ bool InitializeDatabase(string database_name, int &db_handle)
     {
         Print("❌ Failed to create database schema, error: ", GetLastError());
         return false;
-    }
-      // Create DBInfo table for database metadata
+    }    // Create DBInfo table for database metadata
     Print("🔧 Creating DBInfo table...");
     string sql_dbinfo = 
         "CREATE TABLE IF NOT EXISTS DBInfo ("
         "id INTEGER PRIMARY KEY, "
+        "database_name TEXT NOT NULL, "
         "broker_name TEXT NOT NULL, "
         "timezone TEXT NOT NULL, "
         "schema_version TEXT NOT NULL, "
@@ -144,12 +139,12 @@ bool InitializeDatabase(string database_name, int &db_handle)
     string schema_version = "2.20";
     datetime current_time = TimeCurrent();
     
-    Print("📊 Broker: ", broker_name, ", Time: ", current_time);
+    Print("📊 Database: ", database_name, ", Broker: ", broker_name, ", Time: ", current_time);
     
     string sql_insert_dbinfo = StringFormat(
-        "INSERT OR REPLACE INTO DBInfo (id, broker_name, timezone, schema_version, created_at, last_updated) "
-        "VALUES (1, '%s', '%s', '%s', %d, %d);", 
-        broker_name, timezone, schema_version, current_time, current_time
+        "INSERT OR REPLACE INTO DBInfo (id, database_name, broker_name, timezone, schema_version, created_at, last_updated) "
+        "VALUES (1, '%s', '%s', '%s', '%s', %d, %d);", 
+        database_name, broker_name, timezone, schema_version, current_time, current_time
     );
     
     Print("📝 Insert SQL: ", sql_insert_dbinfo);
@@ -372,12 +367,10 @@ bool SetupDatabaseSchema(int db_handle, string db_type)
 //| Copy sample data from main database to test input database      |
 //+------------------------------------------------------------------+
 void CopyMainDataToTestInput(string main_db_name, int test_input_handle)
-{
-    int main_handle = DatabaseOpen(main_db_name, DATABASE_OPEN_READONLY);
+{    int main_handle = DatabaseOpen(main_db_name, DATABASE_OPEN_READONLY);
     if(main_handle == INVALID_HANDLE)
     {
-        Print("📊 No main database found, creating sample test data...");
-        CreateSampleTestData(test_input_handle);
+        Print("📊 No main database found, test input will remain empty");
         return;
     }
       // Copy more recent data (last 1000 bars) for better testing coverage
@@ -385,12 +378,11 @@ void CopyMainDataToTestInput(string main_db_name, int test_input_handle)
         "SELECT asset_symbol, timeframe, timestamp, open, high, low, close, "
         "tick_volume, real_volume, hash, is_validated, is_complete, validation_time "
         "FROM AllCandleData ORDER BY timestamp DESC LIMIT 1000;";
-    
-    int request = DatabasePrepare(main_handle, copy_sql);
+      int request = DatabasePrepare(main_handle, copy_sql);
     if(request == INVALID_HANDLE)
     {
         DatabaseClose(main_handle);
-        CreateSampleTestData(test_input_handle);
+        Print("Failed to prepare copy query, test input will remain empty");
         return;
     }
     
@@ -431,42 +423,6 @@ void CopyMainDataToTestInput(string main_db_name, int test_input_handle)
     DatabaseClose(main_handle);
     
     Print("📊 Copied ", copied_count, " records to test input database");
-}
-
-//+------------------------------------------------------------------+
-//| Create sample test data when no main database exists             |
-//+------------------------------------------------------------------+
-void CreateSampleTestData(int db_handle)
-{
-    Print("📊 Creating sample test data...");
-    
-    datetime current_time = TimeCurrent();
-    int sample_count = 50;
-    
-    for(int i = 0; i < sample_count; i++)
-    {
-        datetime bar_time = current_time - (i * 60); // 1-minute bars
-        double base_price = 1.1000 + (MathRand() % 1000) * 0.0001;
-        double open = base_price;
-        double high = open + (MathRand() % 50) * 0.0001;
-        double low = open - (MathRand() % 50) * 0.0001;
-        double close = low + (MathRand() % (int)((high - low) * 10000)) * 0.0001;
-        long volume = 100 + MathRand() % 900;
-        
-        // Create a simple hash for test data
-        string test_hash = StringFormat("TEST_%I64d_%d", bar_time, i);
-        
-        string insert_sql = StringFormat(
-            "INSERT INTO AllCandleData "
-            "(asset_symbol, timeframe, timestamp, open, high, low, close, tick_volume, real_volume, hash, is_validated, is_complete) "
-            "VALUES ('BTCUSD','M1',%I64d,%.5f,%.5f,%.5f,%.5f,%d,%d,'%s',0,0);",
-            bar_time, open, high, low, close, volume, volume, test_hash
-        );
-        
-        DatabaseExecuteRetry(db_handle, insert_sql);
-    }
-    
-    Print("✅ Created ", sample_count, " sample test records");
 }
 
 //+------------------------------------------------------------------+

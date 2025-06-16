@@ -61,8 +61,7 @@ public:
     void UpdateVisualPanel(void);
     void CleanupVisualPanel(void);
     void ForceCleanupAllSSoTObjects(void);  // Emergency cleanup for all SSoT objects    //--- Clipboard Functions
-    bool CopyToClipboard(void);
-    string GenerateReportText(void);
+    bool CopyToClipboard(void);    string GenerateReportText(void);
     bool CopyTextToClipboard(string text);
     void HandleChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam);
       //--- Log Buffer Functions (temporarily disabled)
@@ -78,10 +77,16 @@ public:
     string GetDetailedBreakdown(int db_handle, string db_name);
     string GetComprehensiveBreakdown(int db_handle, string db_name);// New method for comprehensive breakdown
 
+    //--- Test Database Functions
+    bool GenerateTestDatabases(void);
+    bool DeleteTestDatabases(void);
+
 private:
     //--- Visual Panel Helper Methods
-    void CreateDatabaseStatusDisplay(void);
-    void CreateModeDisplay(void);    void CreateCopyButton(void);
+    void CreateDatabaseStatusDisplay(void);    void CreateModeDisplay(void);
+    void CreateCopyButton(void);
+    void CreateGenerateTestDBsButton(void);
+    void CreateDeleteTestDBsButton(void);
     void CreateProgressDisplay(void);
     
     //--- Enhanced Database Display Methods  
@@ -202,21 +207,43 @@ void CTestPanel::DisplayDatabaseOverview(void)
 //| Display database server information - DBInfo                     |
 //+------------------------------------------------------------------+
 void CTestPanel::DisplayDBInfo(int db_handle, string db_name)
-{    if(db_handle == INVALID_HANDLE) {
+{
+    if(db_handle == INVALID_HANDLE) {
         Print("[DATA]   ERROR: Database not available: " + db_name);
         return;
     }
-    
     Print("[DATA]   DBInfo:");
     Print("[DATA]      Server: SQLite Local Database");
     Print("[DATA]      Filename: " + db_name);
-    
     // Timezone information
     MqlDateTime dt;
     TimeCurrent(dt);
     int gmt_offset = (int)((TimeCurrent() - TimeGMT()) / 3600);
-    string timezone = StringFormat("GMT%s%d", (gmt_offset >= 0 ? "+" : ""), gmt_offset);    Print("[DATA]      Timezone: " + timezone);
+    string local_timezone = StringFormat("GMT%s%d", (gmt_offset >= 0 ? "+" : ""), gmt_offset);
+    Print("[DATA]      Timezone: " + local_timezone);
     Print("[DATA]      Local Time: " + TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS));
+    // Read DBInfo as key-value pairs
+    string broker_name = "", db_timezone_val = "", schema_version = "", database_type = "", database_version = "", created_at = "", setup_by = "";
+    int dbinfo_request = DatabasePrepare(db_handle, "SELECT key, value FROM DBInfo");
+    if(dbinfo_request != INVALID_HANDLE) {
+        while(DatabaseRead(dbinfo_request)) {
+            string key = "", value = "";
+            DatabaseColumnText(dbinfo_request, 0, key);
+            DatabaseColumnText(dbinfo_request, 1, value);
+            if(key == "broker_name") broker_name = value;
+            else if(key == "timezone") db_timezone_val = value;
+            else if(key == "schema_version") schema_version = value;
+            else if(key == "database_type") database_type = value;
+            else if(key == "database_version") database_version = value;
+            else if(key == "created_at") created_at = value;
+            else if(key == "setup_by") setup_by = value;
+        }
+        DatabaseFinalize(dbinfo_request);
+    }
+    Print("[DATA]      - Source: " + db_name);
+    Print("[DATA]      - Broker: " + (broker_name != "" ? broker_name : "MISSING"));
+    Print("[DATA]      - Timezone: UTC");
+    Print("[DATA]      - Schema: " + (schema_version != "" ? schema_version : (database_version != "" ? database_version : "MISSING")));
 }
 
 //+------------------------------------------------------------------+
@@ -229,9 +256,8 @@ void CTestPanel::DisplayAllCandleData(int db_handle, string db_name)
     }
     
     Print("[DATA]   AllCandleData:");
-    
-    // Find the appropriate table name
-    string table_names[] = {"candle_data", "ohlctv_data", "enhanced_data"};
+      // Find the appropriate table name
+    string table_names[] = {"AllCandleData", "candle_data", "ohlctv_data", "enhanced_data"};
     string active_table = "";
     
     for(int i = 0; i < ArraySize(table_names); i++) {
@@ -254,9 +280,9 @@ void CTestPanel::DisplayAllCandleData(int db_handle, string db_name)
     }
     
     Print("[DATA]      Table: " + active_table);
-    
-    // Get unique assets (symbols)
-    string assets_query = StringFormat("SELECT DISTINCT symbol FROM %s ORDER BY symbol", active_table);
+      // Get unique assets (symbols)
+    string column_name = (active_table == "AllCandleData") ? "asset_symbol" : "symbol";
+    string assets_query = StringFormat("SELECT DISTINCT %s FROM %s ORDER BY %s", column_name, active_table, column_name);
     int request = DatabasePrepare(db_handle, assets_query);
     
     if(request == INVALID_HANDLE) {
@@ -385,7 +411,6 @@ string CTestPanel::TimeframeToString(int timeframe)
     if(timeframe == 60) return "H1";
     if(timeframe == 240) return "H4";
     if(timeframe == 1440) return "D1";
-    if(timeframe == 10080) return "W1";
     if(timeframe == 43200) return "MN1";
     
     // Fallback for unknown values
@@ -449,8 +474,7 @@ void CTestPanel::UpdateVisualPanel(void)
     
     // Update mode display
     CreateModeDisplay();    // Show combined database info and candle counts on chart
-    CreateFullDatabaseDisplay();
-      // Create copy button
+    CreateFullDatabaseDisplay();    // Create copy button
     CreateCopyButton();
     
     ChartRedraw();
@@ -487,7 +511,7 @@ void CTestPanel::CreateFullDatabaseDisplay(void)
         // Single column layout for live mode
         CreateDatabaseColumn("LIVE DATABASE", m_main_db, "sourcedb.sqlite", 
                            40, start_y, clrLimeGreen);
-    }      // Create copy buttons at bottom
+    }    // Create copy buttons at bottom
     CreateCopyButton();
     
     // Force chart redraw to ensure objects are visible
@@ -518,10 +542,8 @@ void CTestPanel::CreatePanelHeader(int y_pos)
     if(ObjectFind(0, status_obj) < 0)
         ObjectCreate(0, status_obj, OBJ_LABEL, 0, 0, 0);
     
-    string status_text = "Mode: " + (m_test_mode_active ? "TEST" : "LIVE") + 
-                        " | Updated: " + TimeToString(TimeCurrent(), TIME_SECONDS);
-    
-    ObjectSetInteger(0, status_obj, OBJPROP_XDISTANCE, 350);
+    string status_text = "Mode: " + (m_test_mode_active ? "TEST" : "LIVE") + " | " + TimeToString(TimeCurrent());
+    ObjectSetInteger(0, status_obj, OBJPROP_XDISTANCE, 400);
     ObjectSetInteger(0, status_obj, OBJPROP_YDISTANCE, y_pos + 3);
     ObjectSetInteger(0, status_obj, OBJPROP_CORNER, CORNER_LEFT_UPPER);
     ObjectSetInteger(0, status_obj, OBJPROP_FONTSIZE, 9);
@@ -541,6 +563,8 @@ void CTestPanel::CreateDatabaseColumn(string title, int db_handle, string db_nam
 {
     Print("[PANEL] Creating database column: " + title + " at position (" + IntegerToString(x_pos) + "," + IntegerToString(y_pos) + ")");
     
+    // Validate position is within panel bounds
+    if(x_pos < 20 || x_pos > 1000 || y_pos < 50 || y_pos > 400) {
     // Validate position is within panel bounds
     if(x_pos < 20 || x_pos > 1000 || y_pos < 50 || y_pos > 400) {
         Print("[PANEL] ERROR: Invalid position for column " + title + " - skipping");
@@ -851,6 +875,58 @@ void CTestPanel::CreateCopyButton(void)
 }
 
 //+------------------------------------------------------------------+
+//| Create Generate Test DBs Button                                 |
+//+------------------------------------------------------------------+
+void CTestPanel::CreateGenerateTestDBsButton(void)
+{
+    string button_name = m_object_prefix + "GenerateTestDBsButton";
+    
+    if(ObjectFind(0, button_name) < 0)
+        ObjectCreate(0, button_name, OBJ_BUTTON, 0, 0, 0);
+    
+    ObjectSetString(0, button_name, OBJPROP_TEXT, "[GEN] Generate Test DBs");
+    ObjectSetString(0, button_name, OBJPROP_FONT, "Arial");
+    ObjectSetInteger(0, button_name, OBJPROP_FONTSIZE, 10);
+    ObjectSetInteger(0, button_name, OBJPROP_COLOR, clrWhite);
+    ObjectSetInteger(0, button_name, OBJPROP_BGCOLOR, clrDarkBlue);
+    ObjectSetInteger(0, button_name, OBJPROP_BORDER_COLOR, clrWhite);
+    ObjectSetInteger(0, button_name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+    ObjectSetInteger(0, button_name, OBJPROP_XDISTANCE, 300);  // Left of copy button
+    ObjectSetInteger(0, button_name, OBJPROP_YDISTANCE, 400);  // Same height as copy button
+    ObjectSetInteger(0, button_name, OBJPROP_XSIZE, 180);      // Same width as copy button
+    ObjectSetInteger(0, button_name, OBJPROP_YSIZE, 30);       // Same height as copy button
+    ObjectSetInteger(0, button_name, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, button_name, OBJPROP_HIDDEN, false);
+    ObjectSetInteger(0, button_name, OBJPROP_BACK, false);
+}
+
+//+------------------------------------------------------------------+
+//| Create Delete Test DBs Button                                   |
+//+------------------------------------------------------------------+
+void CTestPanel::CreateDeleteTestDBsButton(void)
+{
+    string button_name = m_object_prefix + "DeleteTestDBsButton";
+    
+    if(ObjectFind(0, button_name) < 0)
+        ObjectCreate(0, button_name, OBJ_BUTTON, 0, 0, 0);
+    
+    ObjectSetString(0, button_name, OBJPROP_TEXT, "[DEL] Delete Test DBs");
+    ObjectSetString(0, button_name, OBJPROP_FONT, "Arial");
+    ObjectSetInteger(0, button_name, OBJPROP_FONTSIZE, 10);
+    ObjectSetInteger(0, button_name, OBJPROP_COLOR, clrWhite);
+    ObjectSetInteger(0, button_name, OBJPROP_BGCOLOR, clrDarkRed);
+    ObjectSetInteger(0, button_name, OBJPROP_BORDER_COLOR, clrWhite);
+    ObjectSetInteger(0, button_name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+    ObjectSetInteger(0, button_name, OBJPROP_XDISTANCE, 720);  // Right of copy button
+    ObjectSetInteger(0, button_name, OBJPROP_YDISTANCE, 400);  // Same height as other buttons
+    ObjectSetInteger(0, button_name, OBJPROP_XSIZE, 180);      // Same width as other buttons
+    ObjectSetInteger(0, button_name, OBJPROP_YSIZE, 30);       // Same height as other buttons
+    ObjectSetInteger(0, button_name, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, button_name, OBJPROP_HIDDEN, false);
+    ObjectSetInteger(0, button_name, OBJPROP_BACK, false);
+}
+
+//+------------------------------------------------------------------+
 //| Create Progress Display                                          |
 //+------------------------------------------------------------------+
 void CTestPanel::CreateProgressDisplay(void)
@@ -923,9 +999,112 @@ void CTestPanel::HandleChartEvent(const int id, const long &lparam, const double
                 ObjectSetInteger(0, status_name, OBJPROP_BACK, false);
                 
                 Print("[WARN] Direct copy failed - data available in terminal");
-            }
-              // Reset button state
+            }            // Reset button state
             ObjectSetInteger(0, m_object_prefix + "CopyButton", OBJPROP_STATE, false);
+            ChartRedraw(0);
+        }
+        else if(sparam == m_object_prefix + "GenerateTestDBsButton")
+        {
+            Print("[GEN] Generate Test DBs button clicked!");
+            
+            if(GenerateTestDatabases())
+            {
+                // Show success status
+                string status_name = m_object_prefix + "GenStatus";
+                if(ObjectFind(0, status_name) < 0)
+                    ObjectCreate(0, status_name, OBJ_LABEL, 0, 0, 0);
+                
+                ObjectSetInteger(0, status_name, OBJPROP_XDISTANCE, 300);
+                ObjectSetInteger(0, status_name, OBJPROP_YDISTANCE, 350);
+                ObjectSetInteger(0, status_name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+                ObjectSetInteger(0, status_name, OBJPROP_COLOR, clrLime);
+                ObjectSetInteger(0, status_name, OBJPROP_FONTSIZE, 8);
+                ObjectSetString(0, status_name, OBJPROP_FONT, "Arial");
+                ObjectSetString(0, status_name, OBJPROP_TEXT, "[OK] Test DBs Created!");
+                ObjectSetInteger(0, status_name, OBJPROP_SELECTABLE, false);
+                ObjectSetInteger(0, status_name, OBJPROP_HIDDEN, false);
+                ObjectSetInteger(0, status_name, OBJPROP_BACK, false);
+                
+                Print("[OK] Test databases generated successfully!");
+                
+                // Refresh the panel to show the new databases
+                UpdateVisualPanel();
+            }
+            else
+            {
+                // Show error status
+                string status_name = m_object_prefix + "GenStatus";
+                if(ObjectFind(0, status_name) < 0)
+                    ObjectCreate(0, status_name, OBJ_LABEL, 0, 0, 0);
+                
+                ObjectSetInteger(0, status_name, OBJPROP_XDISTANCE, 300);
+                ObjectSetInteger(0, status_name, OBJPROP_YDISTANCE, 350);
+                ObjectSetInteger(0, status_name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+                ObjectSetInteger(0, status_name, OBJPROP_COLOR, clrRed);
+                ObjectSetInteger(0, status_name, OBJPROP_FONTSIZE, 8);
+                ObjectSetString(0, status_name, OBJPROP_FONT, "Arial");
+                ObjectSetString(0, status_name, OBJPROP_TEXT, "[ERROR] Generation Failed!");
+                ObjectSetInteger(0, status_name, OBJPROP_SELECTABLE, false);
+                ObjectSetInteger(0, status_name, OBJPROP_HIDDEN, false);
+                ObjectSetInteger(0, status_name, OBJPROP_BACK, false);
+                
+                Print("[ERROR] Test database generation failed!");
+            }
+            
+            // Reset button state
+            ObjectSetInteger(0, m_object_prefix + "GenerateTestDBsButton", OBJPROP_STATE, false);
+            ChartRedraw(0);
+        }
+        else if(sparam == m_object_prefix + "DeleteTestDBsButton")
+        {
+            Print("[DEL] Delete Test DBs button clicked!");
+            
+            if(DeleteTestDatabases())
+            {
+                // Show success status
+                string status_name = m_object_prefix + "DelStatus";
+                if(ObjectFind(0, status_name) < 0)
+                    ObjectCreate(0, status_name, OBJ_LABEL, 0, 0, 0);
+                
+                ObjectSetInteger(0, status_name, OBJPROP_XDISTANCE, 720);
+                ObjectSetInteger(0, status_name, OBJPROP_YDISTANCE, 350);
+                ObjectSetInteger(0, status_name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+                ObjectSetInteger(0, status_name, OBJPROP_COLOR, clrLime);
+                ObjectSetInteger(0, status_name, OBJPROP_FONTSIZE, 8);
+                ObjectSetString(0, status_name, OBJPROP_FONT, "Arial");
+                ObjectSetString(0, status_name, OBJPROP_TEXT, "[OK] Test DBs Deleted!");
+                ObjectSetInteger(0, status_name, OBJPROP_SELECTABLE, false);
+                ObjectSetInteger(0, status_name, OBJPROP_HIDDEN, false);
+                ObjectSetInteger(0, status_name, OBJPROP_BACK, false);
+                
+                Print("[OK] Test databases deleted successfully!");
+                
+                // Refresh the panel to clear deleted databases
+                UpdateVisualPanel();
+            }
+            else
+            {
+                // Show error status
+                string status_name = m_object_prefix + "DelStatus";
+                if(ObjectFind(0, status_name) < 0)
+                    ObjectCreate(0, status_name, OBJ_LABEL, 0, 0, 0);
+                
+                ObjectSetInteger(0, status_name, OBJPROP_XDISTANCE, 720);
+                ObjectSetInteger(0, status_name, OBJPROP_YDISTANCE, 350);
+                ObjectSetInteger(0, status_name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+                ObjectSetInteger(0, status_name, OBJPROP_COLOR, clrRed);
+                ObjectSetInteger(0, status_name, OBJPROP_FONTSIZE, 8);
+                ObjectSetString(0, status_name, OBJPROP_FONT, "Arial");
+                ObjectSetString(0, status_name, OBJPROP_TEXT, "[ERROR] Deletion Failed!");
+                ObjectSetInteger(0, status_name, OBJPROP_SELECTABLE, false);
+                ObjectSetInteger(0, status_name, OBJPROP_HIDDEN, false);
+                ObjectSetInteger(0, status_name, OBJPROP_BACK, false);
+                
+                Print("[ERROR] Test database deletion failed!");
+            }
+            
+            // Reset button state
+            ObjectSetInteger(0, m_object_prefix + "DeleteTestDBsButton", OBJPROP_STATE, false);
             ChartRedraw(0);
         }
     }
@@ -1047,6 +1226,10 @@ void CTestPanel::CleanupVisualPanel(void)
     ObjectDelete(0, m_object_prefix + "Title");    ObjectDelete(0, m_object_prefix + "Status");
     ObjectDelete(0, m_object_prefix + "CopyButton");
     ObjectDelete(0, m_object_prefix + "CopyStatus");
+    ObjectDelete(0, m_object_prefix + "GenerateTestDBsButton");
+    ObjectDelete(0, m_object_prefix + "GenStatus");
+    ObjectDelete(0, m_object_prefix + "DeleteTestDBsButton");
+    ObjectDelete(0, m_object_prefix + "DelStatus");
     ObjectDelete(0, m_object_prefix + "ExpertLogButton");  // New: Expert log button
     ObjectDelete(0, m_object_prefix + "LogCopyStatus");    // New: Expert log status
     ObjectDelete(0, m_object_prefix + "Progress");
@@ -1124,81 +1307,34 @@ void CTestPanel::ForceCleanupAllSSoTObjects(void)
 //+------------------------------------------------------------------+
 string CTestPanel::GetDatabaseInfo(int db_handle, string db_name)
 {
-    string info = "";
-    
     if(db_handle == INVALID_HANDLE) {
-        info += "- Error: Database not available\n";
-        return info;
-    }    // Get DBInfo information - NO FALLBACKS, show real database state
-    Print("[DEBUG] ===== QUERYING DATABASE: " + db_name + " (handle: " + IntegerToString(db_handle) + ") =====");
-    int dbinfo_request = DatabasePrepare(db_handle, "SELECT broker_name, timezone, schema_version FROM DBInfo WHERE id=1");
-    Print("[DEBUG] DBInfo query prepared. Request handle: " + IntegerToString(dbinfo_request));
-    
-    if(dbinfo_request != INVALID_HANDLE && DatabaseRead(dbinfo_request)) {
-        string broker_name = "", timezone = "", schema_version = "";
-        DatabaseColumnText(dbinfo_request, 0, broker_name);
-        DatabaseColumnText(dbinfo_request, 1, timezone);
-        DatabaseColumnText(dbinfo_request, 2, schema_version);
-        
-        Print("[DEBUG] DBInfo READ SUCCESS for " + db_name + " - Broker: '" + broker_name + "', TZ: '" + timezone + "', Schema: '" + schema_version + "'");
-        
-        info += "- Broker: " + broker_name + "\n";
-        info += "- Timezone: " + timezone + "\n"; 
-        info += "- Schema: " + schema_version + "\n";
+        return "ERROR: Database not available: " + db_name;
+    }
+
+    string info = "";
+    // Read DBInfo as key-value pairs
+    string broker_name = "MISSING", db_timezone_val = "MISSING", schema_version = "MISSING", created_at = "MISSING";
+    int dbinfo_request = DatabasePrepare(db_handle, "SELECT key, value FROM DBInfo");
+    if(dbinfo_request != INVALID_HANDLE) {
+        while(DatabaseRead(dbinfo_request)) {
+            string key = "", value = "";
+            DatabaseColumnText(dbinfo_request, 0, key);
+            DatabaseColumnText(dbinfo_request, 1, value);
+            if(key == "broker_name") broker_name = value;
+            else if(key == "timezone") db_timezone_val = value;
+            else if(key == "schema_version" || key == "database_version") schema_version = value;
+            else if(key == "created_at") created_at = value;
+        }
         DatabaseFinalize(dbinfo_request);
-    } else {
-        Print("[DEBUG] DBInfo READ FAILED for " + db_name + " - NO DBInfo table or empty");
-        // REAL state - DBInfo table missing or empty
-        info += "- ERROR: DBInfo table missing or empty\n";
-        info += "- Broker: MISSING\n";
-        info += "- Timezone: MISSING\n";
-        info += "- Schema: MISSING\n";
     }
-      // Get database file information - REAL file data
-    if(FileIsExist(db_name, FILE_COMMON)) {
-        int file_handle = FileOpen(db_name, FILE_READ | FILE_BIN | FILE_COMMON);
-        if(file_handle != INVALID_HANDLE) {
-            long file_size = FileSize(file_handle);
-            FileClose(file_handle);
-            double size_mb = (double)file_size / (1024.0 * 1024.0);
-            info += "- File Size: " + StringFormat("%.2f MB", size_mb) + "\n";
-        } else {
-            info += "- File Size: ERROR - Cannot open file\n";
-        }
-    } else {
-        info += "- File Size: ERROR - File not found\n";
-    }
-      // Get table information - REAL table data (exclude sqlite internal tables)
-    Print("[DEBUG] ===== QUERYING TABLES for ", db_name, " =====");
-    int request = DatabasePrepare(db_handle, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'");
-    if(request != INVALID_HANDLE) {
-        int table_count = 0;
-        string table_names = "";
-        while(DatabaseRead(request)) {
-            table_count++;
-            if(table_count > 1) table_names += ", ";
-            string table_name = "";
-            DatabaseColumnText(request, 0, table_name);
-            table_names += table_name;
-            Print("[DEBUG] Found table #", table_count, ": '", table_name, "'");
-        }
-        DatabaseFinalize(request);
-        
-        Print("[DEBUG] Table count for ", db_name, ": ", table_count, " tables: ", table_names);
-        
-        if(table_count > 0) {
-            info += "- Tables (" + IntegerToString(table_count) + "): " + table_names + "\n";
-        } else {
-            info += "- Tables: EMPTY - No tables found\n";
-        }
-    } else {
-        info += "- Tables: ERROR - Cannot query schema\n";
-    }
-    
-    // Database type and location
-    info += "- Type: SQLite Database\n";
-    info += "- Location: " + db_name + "\n";
-    
+
+    // Format the string
+    info += "File: " + db_name + "\\n";
+    info += "Broker: " + broker_name + "\\n";
+    info += "Timezone: UTC\\n"; // Always display UTC
+    info += "Schema: " + schema_version + "\\n";
+    info += "Created: " + (StringLen(created_at) > 10 ? StringSubstr(created_at, 0, 10) : created_at);
+
     return info;
 }
 
@@ -1413,6 +1549,7 @@ string CTestPanel::GetDetailedBreakdown(int db_handle, string db_name)
         breakdown += "  * " + symbol + ":\n";
           // Get timeframes and counts for this symbol
         string tf_query = StringFormat(
+
             "SELECT timeframe, COUNT(*) as entries FROM %s WHERE symbol='%s' GROUP BY timeframe ORDER BY timeframe", 
             active_table, symbol);
         
@@ -1531,11 +1668,11 @@ string CTestPanel::GetComprehensiveBreakdown(int db_handle, string db_name)
     request = DatabasePrepare(db_handle, count_query);
     
     if(request == INVALID_HANDLE) {
-        breakdown += "- Total Records: Unable to access table\n";
-        return breakdown;
-    }
+{
+    string breakdown = "";
     
-    long total_records = 0;
+    if(db_handle == INVALID_HANDLE) {
+        breakdown += "- Database not available\n";
     if(DatabaseRead(request)) {
         DatabaseColumnLong(request, 0, total_records);
     }

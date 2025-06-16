@@ -10,10 +10,11 @@
 //--- Include Files
 #include <SSoT/TestPanel_Simple.mqh>  // Main test panel integration
 #include <SSoT/DataFetcher.mqh>       // Data fetching functionality
+#include <SSoT/DatabaseSetup.mqh>     // Add this include for unified DB setup
 
 //--- Input Parameters
 input group "=== Main Configuration ==="
-input string    SystemSymbols = "EURUSD,GBPUSD,USDJPY";        // Symbols to monitor
+input string    SystemSymbols = "EURUSD";        // Symbols to monitor
 input string    SystemTimeframes = "M1,M5,M15,H1";             // Timeframes to monitor
 input bool      EnableTestMode = true;                        // Enable dual database testing
 
@@ -94,23 +95,20 @@ int OnInit()
     g_test_mode_active = EnableTestMode;
     
     // Open database connections
-    Print("[DB] Opening database connections...");    Print("[DB] Terminal Data Path: " + TerminalInfoString(TERMINAL_DATA_PATH));
+    Print("[DB] Opening database connections...");
+    Print("[DB] Terminal Data Path: " + TerminalInfoString(TERMINAL_DATA_PATH));
     Print("[DB] Common Files Path: " + TerminalInfoString(TERMINAL_COMMONDATA_PATH));
     
     // Reset last error before attempting connections
     ResetLastError();
-    
-    // Open main database
+      // Open main database (LOCAL, not COMMON for portable setup)
     string main_db_path = MainDatabase;
-    Print("[DB] Attempting to open main database: " + main_db_path);
-    
-    g_main_db = DatabaseOpen(main_db_path, DATABASE_OPEN_READWRITE | DATABASE_OPEN_COMMON);
+    g_main_db = DatabaseOpen(main_db_path, DATABASE_OPEN_READWRITE | DATABASE_OPEN_CREATE);
     int main_error = GetLastError();
     
     if(g_main_db == INVALID_HANDLE) {
         Print("[DB] WARNING: Could not open main database with READ/WRITE, Error: ", main_error);
-        ResetLastError();
-        g_main_db = DatabaseOpen(main_db_path, DATABASE_OPEN_READONLY | DATABASE_OPEN_COMMON);
+        ResetLastError();        g_main_db = DatabaseOpen(main_db_path, DATABASE_OPEN_READONLY);
         main_error = GetLastError();
         
         if(g_main_db == INVALID_HANDLE) {
@@ -121,143 +119,27 @@ int OnInit()
             main_error = GetLastError();                if(g_main_db == INVALID_HANDLE) {
                     Print("[DB] CRITICAL: Main database failed all connection attempts, Error: ", main_error);                } else {
                     Print("[DB] SUCCESS: Main database connected (READONLY, local): ", main_db_path);
-                    
-                    // Try to create DBInfo even for READONLY database (will fail gracefully if not possible)
-                    Print("[DB] Attempting to check/create DBInfo for main database...");
-                    CreateDBInfoForExistingDatabase(g_main_db, "MAIN");
                 }} else {
             Print("[DB] SUCCESS: Main database connected (READONLY, common): ", main_db_path);
-            
-            // Try to create DBInfo even for READONLY database (will fail gracefully if not possible)
-            Print("[DB] Attempting to check/create DBInfo for main database...");
-            CreateDBInfoForExistingDatabase(g_main_db, "MAIN");
         }} else {
         Print("[DB] SUCCESS: Main database connected (READ/WRITE, common): ", main_db_path);
-        
-        // Initialize database schema and DBInfo if needed
-        if(!InitializeDatabase(main_db_path, g_main_db)) {
-            Print("[DB] WARNING: Failed to initialize main database schema");
-        } else {
-            // Ensure DBInfo is properly set up
-            CreateDBInfoForExistingDatabase(g_main_db, "MAIN");
-        }
     }
     
-    if(g_test_mode_active) {        // Open test input database (ensure it exists and has data)
+    if(g_test_mode_active) {
         string test_input_path = TestInputDB;
-        Print("[DB] Attempting to open test input database: ", test_input_path);
-        ResetLastError();
-        
-        // First try to create/open with write access
-        g_test_input_db = DatabaseOpen(test_input_path, DATABASE_OPEN_READWRITE | DATABASE_OPEN_CREATE | DATABASE_OPEN_COMMON);
-        int input_error = GetLastError();
-        
-        if(g_test_input_db == INVALID_HANDLE) {
-            Print("[DB] WARNING: Test input DB CREATE/RW failed, Error: ", input_error);
-            // Try existing database with write access
-            ResetLastError();
-            g_test_input_db = DatabaseOpen(test_input_path, DATABASE_OPEN_READWRITE | DATABASE_OPEN_COMMON);
-            input_error = GetLastError();
-            
-            if(g_test_input_db == INVALID_HANDLE) {
-                Print("[DB] WARNING: Test input DB READ/WRITE failed, Error: ", input_error);
-                ResetLastError();
-                g_test_input_db = DatabaseOpen(test_input_path, DATABASE_OPEN_READONLY | DATABASE_OPEN_COMMON);
-                input_error = GetLastError();
-                
-                if(g_test_input_db == INVALID_HANDLE) {
-                    Print("[DB] WARNING: Test input DB READONLY/COMMON failed, Error: ", input_error);
-                    ResetLastError();
-                    g_test_input_db = DatabaseOpen(test_input_path, DATABASE_OPEN_READONLY);
-                    input_error = GetLastError();
-                    
-                    if(g_test_input_db == INVALID_HANDLE) {
-                        Print("[DB] ERROR: Test input database failed all attempts, Error: ", input_error);
-                    } else {
-                        Print("[DB] SUCCESS: Test input database connected (READONLY, local): ", test_input_path);
-                        Print("[DB] WARNING: Cannot copy data - database opened in READONLY mode");
-                    }
-                } else {
-                    Print("[DB] SUCCESS: Test input database connected (READONLY, common): ", test_input_path);
-                    Print("[DB] WARNING: Cannot copy data - database opened in READONLY mode");
-                }
-            } else {                Print("[DB] SUCCESS: Test input database connected (READ/WRITE, common): ", test_input_path);
-                
-                // Initialize database schema and DBInfo if needed
-                if(!SetupDatabaseSchema(g_test_input_db, "TEST_INPUT")) {
-                    Print("[DB] WARNING: Failed to setup schema for test input database");
-                }
-                
-                // Copy data from main database to test input database
-                Print("[DB] Copying data from sourcedb.sqlite to SSoT_input.db...");
-                CopyMainDataToTestInput("sourcedb.sqlite", g_test_input_db);
-                
-                // Verify data was copied
-                int verify_request = DatabasePrepare(g_test_input_db, "SELECT COUNT(*) FROM AllCandleData");
-                if(verify_request != INVALID_HANDLE && DatabaseRead(verify_request)) {
-                    int record_count = 0;
-                    DatabaseColumnInteger(verify_request, 0, record_count);
-                    Print("[DB] ✅ Data copy verification: ", record_count, " records in SSoT_input.db");
-                    DatabaseFinalize(verify_request);
-                }
-            }
-        } else {            Print("[DB] SUCCESS: Test input database created/opened (READ/WRITE, common): ", test_input_path);
-            
-            // Initialize database schema and DBInfo if needed
-            if(!SetupDatabaseSchema(g_test_input_db, "TEST_INPUT")) {
-                Print("[DB] WARNING: Failed to setup schema for test input database");
-            }
-            
-            // Copy data from main database to test input database
-            Print("[DB] Copying data from sourcedb.sqlite to SSoT_input.db...");
-            CopyMainDataToTestInput("sourcedb.sqlite", g_test_input_db);
-            
-            // Verify data was copied
-            int verify_request = DatabasePrepare(g_test_input_db, "SELECT COUNT(*) FROM AllCandleData");
-            if(verify_request != INVALID_HANDLE && DatabaseRead(verify_request)) {
-                int record_count = 0;
-                DatabaseColumnInteger(verify_request, 0, record_count);
-                Print("[DB] ✅ Data copy verification: ", record_count, " records in SSoT_input.db");
-                DatabaseFinalize(verify_request);
-            }
-        }
-        
-        // Open test output database
+        g_test_input_db = DatabaseOpen(test_input_path, DATABASE_OPEN_READWRITE | DATABASE_OPEN_CREATE);
         string test_output_path = TestOutputDB;
-        Print("[DB] Attempting to open test output database: ", test_output_path);
-        ResetLastError();
-        
-        g_test_output_db = DatabaseOpen(test_output_path, DATABASE_OPEN_READWRITE | DATABASE_OPEN_COMMON);
-        int output_error = GetLastError();
-        
-        if(g_test_output_db == INVALID_HANDLE) {
-            Print("[DB] WARNING: Test output DB READ/WRITE failed, Error: ", output_error);
-            ResetLastError();
-            g_test_output_db = DatabaseOpen(test_output_path, DATABASE_OPEN_READONLY | DATABASE_OPEN_COMMON);
-            output_error = GetLastError();
-            
-            if(g_test_output_db == INVALID_HANDLE) {
-                Print("[DB] WARNING: Test output DB READONLY/COMMON failed, Error: ", output_error);
-                ResetLastError();
-                g_test_output_db = DatabaseOpen(test_output_path, DATABASE_OPEN_READONLY);
-                output_error = GetLastError();
-                
-                if(g_test_output_db == INVALID_HANDLE) {
-                    Print("[DB] ERROR: Test output database failed all attempts, Error: ", output_error);
-                } else {
-                    Print("[DB] SUCCESS: Test output database connected (READONLY, local): ", test_output_path);
-                }
-            } else {
-                Print("[DB] SUCCESS: Test output database connected (READONLY, common): ", test_output_path);
-            }        } else {
-            Print("[DB] SUCCESS: Test output database connected (READ/WRITE, common): ", test_output_path);
-            
-            // Initialize database schema and DBInfo if needed
-            if(!SetupDatabaseSchema(g_test_output_db, "TEST_OUTPUT")) {
-                Print("[DB] WARNING: Failed to setup schema for test output database");
-            }
-        }
-    }    
+        g_test_output_db = DatabaseOpen(test_output_path, DATABASE_OPEN_READWRITE | DATABASE_OPEN_CREATE);
+    }
+    // --- Unified DB structure setup ---
+    if(!CDatabaseSetup::SetupAllDatabases(g_main_db, g_test_input_db, g_test_output_db, g_test_mode_active)) {
+        Print("❌ ERROR: Unified database setup failed");
+        return INIT_FAILED;
+    }
+    
+    // Diagnostic: Print all DB handles and their intended file paths
+    Print("[DEBUG] DB Handles: Main=", g_main_db, " (", main_db_path, ") | TestInput=", g_test_input_db, " (", TestInputDB, ") | TestOutput=", g_test_output_db, " (", TestOutputDB, ")");
+    
     Print("[DB] Database connection summary - Main: ", (g_main_db != INVALID_HANDLE ? "CONNECTED" : "FAILED"), 
           ", Input: ", (g_test_input_db != INVALID_HANDLE ? "CONNECTED" : "FAILED"),
           ", Output: ", (g_test_output_db != INVALID_HANDLE ? "CONNECTED" : "FAILED"));
