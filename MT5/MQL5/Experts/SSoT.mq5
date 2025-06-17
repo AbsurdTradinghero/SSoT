@@ -8,7 +8,7 @@
 #property strict
 
 //--- Include Files
-#include <SSoT/TestPanel_Simple.mqh>  // Main test panel integration
+#include <SSoT/TestPanelRefactored.mqh>  // Refactored modular test panel
 #include <SSoT/DataFetcher.mqh>       // Data fetching functionality
 #include <SSoT/DatabaseSetup.mqh>     // Add this include for unified DB setup
 
@@ -30,7 +30,7 @@ input int       ValidationInterval = 300;                      // Validation int
 input int       TestFlowInterval = 3600;                       // Test mode flow interval (seconds)
 
 //--- Global Variables
-CTestPanel      *g_test_panel = NULL;                           // Test panel instance
+CTestPanelRefactored      *g_test_panel = NULL;                           // Test panel instance
 int             g_main_db = INVALID_HANDLE;                     // Main database handle
 int             g_test_input_db = INVALID_HANDLE;               // Test input database
 int             g_test_output_db = INVALID_HANDLE;              // Test output database
@@ -145,7 +145,7 @@ int OnInit()
           ", Output: ", (g_test_output_db != INVALID_HANDLE ? "CONNECTED" : "FAILED"));
     
     // Initialize test panel
-    g_test_panel = new CTestPanel();
+    g_test_panel = new CTestPanelRefactored();
     if(g_test_panel == NULL) {
         Print("❌ ERROR: Failed to create test panel");
         return INIT_FAILED;
