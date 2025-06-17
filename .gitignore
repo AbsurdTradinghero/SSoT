@@ -20,39 +20,43 @@
 !*.ps1
 
 # Documentation
+!docs/
+!docs/**
 !Marton/
 !Marton/**
 
 # === INCLUDE ONLY CUSTOM MQL5 CODE ===
 
-# Custom Experts
-!mt5/
-!mt5/MQL5/
-!mt5/MQL5/Experts/
-!mt5/MQL5/Experts/SSoT.mq5
-!mt5/MQL5/Experts/DiagnosticCompile.mq5
-!mt5/MQL5/Experts/Legacy/
-!mt5/MQL5/Experts/Legacy/**
+# Custom Experts (updated path)
+!MT5/
+# Custom Experts (updated path)
+!MT5/
+!MT5/MQL5/
+!MT5/MQL5/Experts/
+!MT5/MQL5/Experts/SSoT.mq5
+!MT5/MQL5/Experts/DiagnosticCompile.mq5
+!MT5/MQL5/Experts/Legacy/
+!MT5/MQL5/Experts/Legacy/**
 
 # Custom Includes
-!mt5/MQL5/Include/
-!mt5/MQL5/Include/SSoT/
-!mt5/MQL5/Include/SSoT/**
+!MT5/MQL5/Include/
+!MT5/MQL5/Include/SSoT/
+!MT5/MQL5/Include/SSoT/**
 
 # Custom Scripts (if they exist)
-!mt5/MQL5/Scripts/
-!mt5/MQL5/Scripts/SSoT/
-!mt5/MQL5/Scripts/SSoT/**
+!MT5/MQL5/Scripts/
+!MT5/MQL5/Scripts/SSoT/
+!MT5/MQL5/Scripts/SSoT/**
 
 # Custom Libraries (if they exist)
-!mt5/MQL5/Libraries/
-!mt5/MQL5/Libraries/SSoT/
-!mt5/MQL5/Libraries/SSoT/**
+!MT5/MQL5/Libraries/
+!MT5/MQL5/Libraries/SSoT/
+!MT5/MQL5/Libraries/SSoT/**
 
 # Custom Indicators (if they exist)
-!mt5/MQL5/Indicators/
-!mt5/MQL5/Indicators/SSoT/
-!mt5/MQL5/Indicators/SSoT/**
+!MT5/MQL5/Indicators/
+!MT5/MQL5/Indicators/SSoT/
+!MT5/MQL5/Indicators/SSoT/**
 
 # === EXCLUDE COMPILED FILES ===
 *.ex5
