@@ -11,8 +11,7 @@
 #include <SSoT/TestPanelRefactored.mqh>  // Refactored modular test panel
 #include <SSoT/DataFetcher.mqh>       // Data fetching functionality
 #include <SSoT/DatabaseSetup.mqh>     // Add this include for unified DB setup
-// TODO: Fix MQL5 syntax issues in self-healing classes
-// #include <SSoT/SSoTSelfHealingIntegration.mqh>  // Self-healing system integration
+#include <SSoT/SelfHealing/SimpleSSoTSelfHealingIntegration.mqh>  // Simple self-healing system
 
 //--- Input Parameters
 input group "=== Main Configuration ==="
@@ -39,8 +38,7 @@ input bool      AutoHealingOnStartup = true;                   // Perform healin
 
 //--- Global Variables
 CTestPanelRefactored      *g_test_panel = NULL;                           // Test panel instance
-// TODO: Fix MQL5 syntax issues in self-healing classes
-// CSSoTSelfHealingIntegration *g_self_healing = NULL;                      // Self-healing system
+CSimpleSSoTSelfHealingIntegration *g_self_healing = NULL;                // Simple self-healing system
 int             g_main_db = INVALID_HANDLE;                     // Main database handle
 int             g_test_input_db = INVALID_HANDLE;               // Test input database
 int             g_test_output_db = INVALID_HANDLE;              // Test output database
@@ -170,17 +168,16 @@ int OnInit()
     g_test_panel.CreateVisualPanel();
     g_test_panel.UpdateVisualPanel();    ChartRedraw();
     
-    // Initialize self-healing system (TODO: Fix MQL5 syntax issues)
-    /*
+    // Initialize simplified self-healing system
     if(EnableSelfHealing) {
-        g_self_healing = new CSSoTSelfHealingIntegration();
+        g_self_healing = new CSimpleSSoTSelfHealingIntegration();
         if(g_self_healing == NULL) {
-            Print("❌ ERROR: Failed to create self-healing system");
+            Print("❌ ERROR: Failed to create simple self-healing system");
             return INIT_FAILED;
         }
         
         if(!g_self_healing.Initialize(g_main_db, g_test_input_db, g_test_output_db)) {
-            Print("❌ ERROR: Failed to initialize self-healing system");
+            Print("❌ ERROR: Failed to initialize simple self-healing system");
             delete g_self_healing;
             g_self_healing = NULL;
             return INIT_FAILED;
@@ -195,12 +192,10 @@ int OnInit()
             g_self_healing.OnInitCheck();
         }
         
-        Print("🔧 Self-healing system: ", g_self_healing.GetQuickHealthStatus());
+        Print("🔧 Simple self-healing system: ", g_self_healing.GetQuickHealthStatus());
     } else {
-        Print("🔧 Self-healing system: DISABLED");
+        Print("🔧 Simple self-healing system: DISABLED");
     }
-    */
-    Print("🔧 Self-healing system: UNDER DEVELOPMENT (MQL5 syntax fixes needed)");
 
     // Initialize data fetcher
     if(!CDataFetcher::Initialize())
@@ -273,15 +268,13 @@ void OnDeinit(const int reason)
             }
         }    }
     
-    // Clean up self-healing system (TODO: Fix MQL5 syntax issues)
-    /*
+    // Clean up simple self-healing system
     if(g_self_healing != NULL) {
         g_self_healing.OnDeinitCheck();
         delete g_self_healing;
         g_self_healing = NULL;
-        Print("🔧 Self-healing system cleaned up");
+        Print("🔧 Simple self-healing system cleaned up");
     }
-    */
     
     // Force additional cleanup - remove any lingering SSoT objects
     Print("🧹 Performing final chart object cleanup...");
@@ -334,12 +327,10 @@ void OnTimer()
 {
     datetime current_time = TimeCurrent();
     
-    // Self-healing system check (TODO: Fix MQL5 syntax issues)
-    /*
+    // Simple self-healing system check
     if(g_self_healing != NULL) {
         g_self_healing.OnTimerCheck();
     }
-    */
     
     // Data validation and fetching logic
     if(current_time - g_last_validation > ValidationInterval)
