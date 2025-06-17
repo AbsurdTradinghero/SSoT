@@ -11,6 +11,8 @@
 #include <SSoT/TestPanelRefactored.mqh>  // Refactored modular test panel
 #include <SSoT/DataFetcher.mqh>       // Data fetching functionality
 #include <SSoT/DatabaseSetup.mqh>     // Add this include for unified DB setup
+// TODO: Re-enable when self-healing classes are fixed
+// #include <SSoT/SSoTSelfHealingIntegration.mqh>  // Self-healing system integration
 
 //--- Input Parameters
 input group "=== Main Configuration ==="
@@ -29,8 +31,16 @@ input bool      EnableLogging = true;                          // Enable detaile
 input int       ValidationInterval = 300;                      // Validation interval (seconds)
 input int       TestFlowInterval = 3600;                       // Test mode flow interval (seconds)
 
+input group "=== Self-Healing Settings ==="
+input bool      EnableSelfHealing = true;                      // Enable self-healing system
+input int       HealthCheckInterval = 600;                     // Health check interval (seconds)
+input bool      AggressiveHealing = false;                     // Enable aggressive healing mode
+input bool      AutoHealingOnStartup = true;                   // Perform healing on startup
+
 //--- Global Variables
 CTestPanelRefactored      *g_test_panel = NULL;                           // Test panel instance
+// TODO: Re-enable when self-healing classes are fixed
+// CSSoTSelfHealingIntegration *g_self_healing = NULL;                      // Self-healing system
 int             g_main_db = INVALID_HANDLE;                     // Main database handle
 int             g_test_input_db = INVALID_HANDLE;               // Test input database
 int             g_test_output_db = INVALID_HANDLE;              // Test output database
@@ -150,8 +160,7 @@ int OnInit()
         Print("❌ ERROR: Failed to create test panel");
         return INIT_FAILED;
     }
-    
-    // Initialize test panel with real database handles
+      // Initialize test panel with real database handles
     if(!g_test_panel.Initialize(g_test_mode_active, g_main_db, g_test_input_db, g_test_output_db)) {
         Print("❌ ERROR: Failed to initialize test panel");
         delete g_test_panel;
@@ -160,7 +169,37 @@ int OnInit()
     }    // Show the visual test panel immediately
     g_test_panel.CreateVisualPanel();
     g_test_panel.UpdateVisualPanel();
-    ChartRedraw();
+    ChartRedraw();    // Initialize self-healing system (TODO: Re-enable when classes are fixed)
+    /*
+    if(EnableSelfHealing) {
+        g_self_healing = new CSSoTSelfHealingIntegration();
+        if(g_self_healing == NULL) {
+            Print("❌ ERROR: Failed to create self-healing system");
+            return INIT_FAILED;
+        }
+        
+        if(!g_self_healing.Initialize(g_main_db, g_test_input_db, g_test_output_db)) {
+            Print("❌ ERROR: Failed to initialize self-healing system");
+            delete g_self_healing;
+            g_self_healing = NULL;
+            return INIT_FAILED;
+        }
+        
+        // Configure self-healing system
+        g_self_healing.SetAutoCheckInterval(HealthCheckInterval);
+        g_self_healing.EnableAutoHealing(true);
+        
+        // Perform initial health validation if enabled
+        if(AutoHealingOnStartup) {
+            g_self_healing.OnInitCheck();
+        }
+        
+        Print("🔧 Self-healing system: ", g_self_healing.GetQuickHealthStatus());
+    } else {
+        Print("🔧 Self-healing system: DISABLED");
+    }
+    */
+    Print("🔧 Self-healing system: UNDER DEVELOPMENT (temporarily disabled)");
 
     // Initialize data fetcher
     if(!CDataFetcher::Initialize())
@@ -233,6 +272,15 @@ void OnDeinit(const int reason)
             }
         }
     }
+      // Clean up self-healing system (TODO: Re-enable when classes are fixed)
+    /*
+    if(g_self_healing != NULL) {
+        g_self_healing.OnDeinitCheck();
+        delete g_self_healing;
+        g_self_healing = NULL;
+        Print("🔧 Self-healing system cleaned up");
+    }
+    */
     
     // Force additional cleanup - remove any lingering SSoT objects
     Print("🧹 Performing final chart object cleanup...");
@@ -284,6 +332,13 @@ void OnTick()
 void OnTimer()
 {
     datetime current_time = TimeCurrent();
+    
+    // Self-healing system check (TODO: Re-enable when classes are fixed)
+    /*
+    if(g_self_healing != NULL) {
+        g_self_healing.OnTimerCheck();
+    }
+    */
     
     // Data validation and fetching logic
     if(current_time - g_last_validation > ValidationInterval)
@@ -339,11 +394,16 @@ void OnTimer()
     }
     
     // Display update logic
-    static datetime last_display = 0;
-    
-    if(current_time - last_display > 30) 
+    static datetime last_display = 0;    if(current_time - last_display > 30) 
     {
         Print("📊 SSoT Monitor - Mode: ", g_test_mode_active ? "TEST" : "LIVE");
+        
+        // Display self-healing status (TODO: Re-enable when classes are fixed)
+        /*
+        if(g_self_healing != NULL) {
+            Print("🔧 ", g_self_healing.GetHealthSummary());
+        }
+        */
         
         // Use test panel to display info
         if(g_test_panel != NULL) {
