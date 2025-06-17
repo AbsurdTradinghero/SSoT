@@ -5,6 +5,9 @@
 #property copyright "ATH Trading System"
 #property version   "1.0.0"
 
+#ifndef SSOT_DATA_RECOVERY_ENGINE_MQH
+#define SSOT_DATA_RECOVERY_ENGINE_MQH
+
 #include <SSoT/HashUtils.mqh>
 #include <SSoT/SelfHealing/DataGapDetector.mqh>
 
@@ -558,13 +561,14 @@ string CDataRecoveryEngine::GetRecoveryReport()
     report += "Total recoveries attempted: " + IntegerToString(m_total_recoveries) + "\n";
     report += "Successful recoveries: " + IntegerToString(m_successful_recoveries) + "\n";
     report += "Failed recoveries: " + IntegerToString(m_failed_recoveries) + "\n";
-    
-    if(m_total_recoveries > 0) {
+      if(m_total_recoveries > 0) {
         double success_rate = (double)m_successful_recoveries / m_total_recoveries * 100.0;
         report += "Success rate: " + DoubleToString(success_rate, 1) + "%\n";
     }
     
     return report;
 }
+
+#endif // SSOT_DATA_RECOVERY_ENGINE_MQH
 
 #endif // SSOT_DATA_RECOVERY_ENGINE_MQH

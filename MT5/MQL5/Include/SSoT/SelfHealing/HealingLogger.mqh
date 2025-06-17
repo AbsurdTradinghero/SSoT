@@ -5,6 +5,14 @@
 #property copyright "ATH Trading System"
 #property version   "1.0.0"
 
+#ifndef SSOT_HEALING_LOGGER_MQH
+#define SSOT_HEALING_LOGGER_MQH
+
+//+------------------------------------------------------------------+
+//| Forward declarations                                             |
+//+------------------------------------------------------------------+
+struct SHealingResult;  // Forward declaration
+
 //+------------------------------------------------------------------+
 //| Log Entry Types                                                  |
 //+------------------------------------------------------------------+
@@ -87,25 +95,23 @@ public:
     // Initialization
     bool Initialize();
     void Configure(const SLoggerConfig &config);
-    void Cleanup();
-    
-    // Main logging methods
-    void LogHealingOperation(const SHealingResult &result);
-    void LogDetection(const string &component, const string &message, ENUM_LOG_SEVERITY severity = SEVERITY_INFO);
-    void LogValidation(const string &component, const string &message, bool success, int duration_ms = 0);
-    void LogPerformance(const string &component, const string &operation, int duration_ms, bool success = true);
-    void LogSystemEvent(const string &message, ENUM_LOG_SEVERITY severity = SEVERITY_INFO);
+    void Cleanup();    // Main logging methods
+    void LogHealingOperation(string operation_type, bool success, int issues_detected, int issues_repaired);
+    void LogDetection(string component, string message, ENUM_LOG_SEVERITY severity = SEVERITY_INFO);
+    void LogValidation(string component, string message, bool success, int duration_ms = 0);
+    void LogPerformance(string component, string operation, int duration_ms, bool success = true);
+    void LogSystemEvent(string message, ENUM_LOG_SEVERITY severity = SEVERITY_INFO);
     
     // Generic logging
-    void Log(ENUM_LOG_TYPE type, ENUM_LOG_SEVERITY severity, const string &component,
-             const string &operation, const string &message, const string &details = "",
-             int duration_ms = 0, bool success = true, const string &error_code = "");
+    void Log(ENUM_LOG_TYPE type, ENUM_LOG_SEVERITY severity, string component,
+             string operation, string message, string details = "",
+             int duration_ms = 0, bool success = true, string error_code = "");
     
     // Log retrieval
     int GetLogEntriesCount() const { return ArraySize(m_log_entries); }
     SHealingLogEntry GetLogEntry(int index);
-    SHealingLogEntry[] GetLogEntries(ENUM_LOG_TYPE type = -1, ENUM_LOG_SEVERITY min_severity = SEVERITY_INFO);
-    SHealingLogEntry[] GetRecentEntries(int count = 50);
+    int GetLogEntries(SHealingLogEntry &entries[], ENUM_LOG_TYPE type = -1, ENUM_LOG_SEVERITY min_severity = SEVERITY_INFO);
+    int GetRecentEntries(SHealingLogEntry &entries[], int count = 50);
     
     // Log analysis
     string GetLogSummary();
@@ -120,12 +126,12 @@ public:
 
 private:
     // Internal logging logic
-    void WriteToConsole(const SHealingLogEntry &entry);
-    void WriteToFile(const SHealingLogEntry &entry);
-    void WriteToDatabase(const SHealingLogEntry &entry);
+    void WriteToConsole(SHealingLogEntry &entry);
+    void WriteToFile(SHealingLogEntry &entry);
+    void WriteToDatabase(SHealingLogEntry &entry);
     
     // Helper methods
-    string FormatLogEntry(const SHealingLogEntry &entry);
+    string FormatLogEntry(SHealingLogEntry &entry);
     string GetSeverityString(ENUM_LOG_SEVERITY severity);
     string GetTypeString(ENUM_LOG_TYPE type);
     string GetTimestampString(datetime timestamp);
@@ -193,24 +199,21 @@ bool CHealingLogger::Initialize()
 //+------------------------------------------------------------------+
 //| Log healing operation result                                     |
 //+------------------------------------------------------------------+
-void CHealingLogger::LogHealingOperation(const SHealingResult &result)
+void CHealingLogger::LogHealingOperation(string operation_type, bool success, int issues_detected, int issues_repaired)
 {
-    string operation = StringFormat("Healing %s", EnumToString(result.type));
-    string message = StringFormat("Target: %s %s", result.symbol, result.timeframe);
-    string details = StringFormat("Processed: %d, Repaired: %d, Failed: %d",
-                                 result.records_processed, result.records_repaired, result.records_failed);
+    string message = StringFormat("Operation: %s", operation_type);
+    string details = StringFormat("Detected: %d, Repaired: %d", issues_detected, issues_repaired);
     
-    ENUM_LOG_TYPE log_type = result.success ? LOG_HEALING_SUCCESS : LOG_HEALING_FAILURE;
-    ENUM_LOG_SEVERITY severity = result.success ? SEVERITY_INFO : SEVERITY_ERROR;
+    ENUM_LOG_TYPE log_type = success ? LOG_HEALING_SUCCESS : LOG_HEALING_FAILURE;
+    ENUM_LOG_SEVERITY severity = success ? SEVERITY_INFO : SEVERITY_ERROR;
     
-    Log(log_type, severity, "DataRecoveryEngine", operation, message, details,
-        result.duration_ms, result.success, result.error_message);
+    Log(log_type, severity, "SelfHealingManager", operation_type, message, details, 0, success, "");
 }
 
 //+------------------------------------------------------------------+
 //| Log detection event                                              |
 //+------------------------------------------------------------------+
-void CHealingLogger::LogDetection(const string &component, const string &message, ENUM_LOG_SEVERITY severity)
+void CHealingLogger::LogDetection(string component, string message, ENUM_LOG_SEVERITY severity)
 {
     Log(LOG_DETECTION, severity, component, "Detection", message);
 }
@@ -218,7 +221,7 @@ void CHealingLogger::LogDetection(const string &component, const string &message
 //+------------------------------------------------------------------+
 //| Log validation event                                             |
 //+------------------------------------------------------------------+
-void CHealingLogger::LogValidation(const string &component, const string &message, bool success, int duration_ms)
+void CHealingLogger::LogValidation(string component, string message, bool success, int duration_ms)
 {
     ENUM_LOG_SEVERITY severity = success ? SEVERITY_INFO : SEVERITY_WARNING;
     Log(LOG_VALIDATION, severity, component, "Validation", message, "", duration_ms, success);
@@ -227,7 +230,7 @@ void CHealingLogger::LogValidation(const string &component, const string &messag
 //+------------------------------------------------------------------+
 //| Log performance metrics                                          |
 //+------------------------------------------------------------------+
-void CHealingLogger::LogPerformance(const string &component, const string &operation, int duration_ms, bool success)
+void CHealingLogger::LogPerformance(string component, string operation, int duration_ms, bool success)
 {
     string message = StringFormat("Performance: %s completed in %dms", operation, duration_ms);
     ENUM_LOG_SEVERITY severity = success ? SEVERITY_INFO : SEVERITY_WARNING;
@@ -237,7 +240,7 @@ void CHealingLogger::LogPerformance(const string &component, const string &opera
 //+------------------------------------------------------------------+
 //| Log system event                                                 |
 //+------------------------------------------------------------------+
-void CHealingLogger::LogSystemEvent(const string &message, ENUM_LOG_SEVERITY severity)
+void CHealingLogger::LogSystemEvent(string message, ENUM_LOG_SEVERITY severity)
 {
     Log(LOG_SYSTEM_EVENT, severity, "System", "Event", message);
 }
@@ -245,9 +248,9 @@ void CHealingLogger::LogSystemEvent(const string &message, ENUM_LOG_SEVERITY sev
 //+------------------------------------------------------------------+
 //| Generic log method                                               |
 //+------------------------------------------------------------------+
-void CHealingLogger::Log(ENUM_LOG_TYPE type, ENUM_LOG_SEVERITY severity, const string &component,
-                        const string &operation, const string &message, const string &details,
-                        int duration_ms, bool success, const string &error_code)
+void CHealingLogger::Log(ENUM_LOG_TYPE type, ENUM_LOG_SEVERITY severity, string component,
+                         string operation, string message, string details,
+                         int duration_ms, bool success, string error_code)
 {
     if(!m_initialized || severity < m_config.min_severity) {
         return;
@@ -310,7 +313,7 @@ void CHealingLogger::Log(ENUM_LOG_TYPE type, ENUM_LOG_SEVERITY severity, const s
 //+------------------------------------------------------------------+
 //| Write log entry to console                                       |
 //+------------------------------------------------------------------+
-void CHealingLogger::WriteToConsole(const SHealingLogEntry &entry)
+void CHealingLogger::WriteToConsole(SHealingLogEntry &entry)
 {
     string formatted = FormatLogEntry(entry);
     
@@ -334,7 +337,7 @@ void CHealingLogger::WriteToConsole(const SHealingLogEntry &entry)
 //+------------------------------------------------------------------+
 //| Write log entry to file                                          |
 //+------------------------------------------------------------------+
-void CHealingLogger::WriteToFile(const SHealingLogEntry &entry)
+void CHealingLogger::WriteToFile(SHealingLogEntry &entry)
 {
     if(m_log_file_handle == INVALID_HANDLE) {
         return;
@@ -350,7 +353,7 @@ void CHealingLogger::WriteToFile(const SHealingLogEntry &entry)
 //+------------------------------------------------------------------+
 //| Write log entry to database                                      |
 //+------------------------------------------------------------------+
-void CHealingLogger::WriteToDatabase(const SHealingLogEntry &entry)
+void CHealingLogger::WriteToDatabase(SHealingLogEntry &entry)
 {
     // This would write to a dedicated logging table in the database
     // For now, this is a placeholder implementation
@@ -363,7 +366,7 @@ void CHealingLogger::WriteToDatabase(const SHealingLogEntry &entry)
 //+------------------------------------------------------------------+
 //| Format log entry for display                                     |
 //+------------------------------------------------------------------+
-string CHealingLogger::FormatLogEntry(const SHealingLogEntry &entry)
+string CHealingLogger::FormatLogEntry(SHealingLogEntry &entry)
 {
     string formatted = StringFormat("[%s] %s::%s - %s",
                                    GetSeverityString(entry.severity),
@@ -462,10 +465,52 @@ void CHealingLogger::CloseLogFile()
 //| Ensure log directory exists                                      |
 //+------------------------------------------------------------------+
 bool CHealingLogger::EnsureLogDirectory()
-{
-    // This would create the log directory if it doesn't exist
+{    // This would create the log directory if it doesn't exist
     // For now, assume the directory exists
     return true;
+}
+
+//+------------------------------------------------------------------+
+//| Get specific log entry by index                                  |
+//+------------------------------------------------------------------+
+SHealingLogEntry CHealingLogger::GetLogEntry(int index)
+{
+    SHealingLogEntry empty = {};
+    if(index < 0 || index >= ArraySize(m_log_entries)) {
+        return empty;
+    }
+    return m_log_entries[index];
+}
+
+//+------------------------------------------------------------------+
+//| Get filtered log entries                                         |
+//+------------------------------------------------------------------+
+int CHealingLogger::GetLogEntries(SHealingLogEntry &entries[], ENUM_LOG_TYPE type = -1, ENUM_LOG_SEVERITY min_severity = SEVERITY_INFO)
+{
+    int count = 0;
+    int total = ArraySize(m_log_entries);
+    
+    // First pass: count matching entries
+    for(int i = 0; i < total; i++) {
+        if((type == -1 || m_log_entries[i].log_type == type) && 
+           m_log_entries[i].severity >= min_severity) {
+            count++;
+        }
+    }
+    
+    // Resize output array
+    ArrayResize(entries, count);
+    
+    // Second pass: copy matching entries
+    int idx = 0;
+    for(int i = 0; i < total; i++) {
+        if((type == -1 || m_log_entries[i].log_type == type) && 
+           m_log_entries[i].severity >= min_severity) {
+            entries[idx++] = m_log_entries[i];
+        }
+    }
+    
+    return count;
 }
 
 //+------------------------------------------------------------------+
@@ -488,20 +533,19 @@ string CHealingLogger::GetLogSummary()
 //+------------------------------------------------------------------+
 //| Get recent log entries                                           |
 //+------------------------------------------------------------------+
-SHealingLogEntry[] CHealingLogger::GetRecentEntries(int count)
+int CHealingLogger::GetRecentEntries(SHealingLogEntry &entries[], int count)
 {
-    SHealingLogEntry recent[];
     int total = ArraySize(m_log_entries);
     int start = MathMax(0, total - count);
     int size = total - start;
     
-    ArrayResize(recent, size);
+    ArrayResize(entries, size);
     
     for(int i = 0; i < size; i++) {
-        recent[i] = m_log_entries[start + i];
+        entries[i] = m_log_entries[start + i];
     }
     
-    return recent;
+    return size;
 }
 
 //+------------------------------------------------------------------+

@@ -11,7 +11,7 @@
 #include <SSoT/TestPanelRefactored.mqh>  // Refactored modular test panel
 #include <SSoT/DataFetcher.mqh>       // Data fetching functionality
 #include <SSoT/DatabaseSetup.mqh>     // Add this include for unified DB setup
-// TODO: Re-enable when self-healing classes are fixed
+// TODO: Fix MQL5 syntax issues in self-healing classes
 // #include <SSoT/SSoTSelfHealingIntegration.mqh>  // Self-healing system integration
 
 //--- Input Parameters
@@ -39,7 +39,7 @@ input bool      AutoHealingOnStartup = true;                   // Perform healin
 
 //--- Global Variables
 CTestPanelRefactored      *g_test_panel = NULL;                           // Test panel instance
-// TODO: Re-enable when self-healing classes are fixed
+// TODO: Fix MQL5 syntax issues in self-healing classes
 // CSSoTSelfHealingIntegration *g_self_healing = NULL;                      // Self-healing system
 int             g_main_db = INVALID_HANDLE;                     // Main database handle
 int             g_test_input_db = INVALID_HANDLE;               // Test input database
@@ -168,8 +168,9 @@ int OnInit()
         return INIT_FAILED;
     }    // Show the visual test panel immediately
     g_test_panel.CreateVisualPanel();
-    g_test_panel.UpdateVisualPanel();
-    ChartRedraw();    // Initialize self-healing system (TODO: Re-enable when classes are fixed)
+    g_test_panel.UpdateVisualPanel();    ChartRedraw();
+    
+    // Initialize self-healing system (TODO: Fix MQL5 syntax issues)
     /*
     if(EnableSelfHealing) {
         g_self_healing = new CSSoTSelfHealingIntegration();
@@ -199,7 +200,7 @@ int OnInit()
         Print("🔧 Self-healing system: DISABLED");
     }
     */
-    Print("🔧 Self-healing system: UNDER DEVELOPMENT (temporarily disabled)");
+    Print("🔧 Self-healing system: UNDER DEVELOPMENT (MQL5 syntax fixes needed)");
 
     // Initialize data fetcher
     if(!CDataFetcher::Initialize())
@@ -270,9 +271,9 @@ void OnDeinit(const int reason)
                 Print("[CLEANUP] Removing orphaned object: ", obj_name);
                 ObjectDelete(0, obj_name);
             }
-        }
-    }
-      // Clean up self-healing system (TODO: Re-enable when classes are fixed)
+        }    }
+    
+    // Clean up self-healing system (TODO: Fix MQL5 syntax issues)
     /*
     if(g_self_healing != NULL) {
         g_self_healing.OnDeinitCheck();
@@ -333,7 +334,7 @@ void OnTimer()
 {
     datetime current_time = TimeCurrent();
     
-    // Self-healing system check (TODO: Re-enable when classes are fixed)
+    // Self-healing system check (TODO: Fix MQL5 syntax issues)
     /*
     if(g_self_healing != NULL) {
         g_self_healing.OnTimerCheck();

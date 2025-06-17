@@ -5,6 +5,9 @@
 #property copyright "ATH Trading System"
 #property version   "1.0.0"
 
+#ifndef SSOT_INTEGRITY_VALIDATOR_MQH
+#define SSOT_INTEGRITY_VALIDATOR_MQH
+
 #include <SSoT/HashUtils.mqh>
 
 //+------------------------------------------------------------------+
@@ -78,38 +81,36 @@ private:
 public:
     CIntegrityValidator();
     ~CIntegrityValidator();
-    
-    // Initialization
+      // Initialization
     bool Initialize(int main_db, int test_input_db, int test_output_db);
-    void Configure(const SValidationConfig &config);
+    void Configure(SValidationConfig &config);
     
     // Main validation methods
     int DetectCorruption();
-    int ValidateDatabase(int db_handle, const string &db_name);
-    int ValidateSymbolData(int db_handle, const string &symbol, const string &timeframe);
+    int ValidateDatabase(int db_handle, string db_name);
+    int ValidateSymbolData(int db_handle, string symbol, string timeframe);
     
     // Specific validation types
-    int ValidateHashes(int db_handle, const string &symbol = "", const string &timeframe = "");
-    int ValidateOHLCRules(int db_handle, const string &symbol = "", const string &timeframe = "");
-    int ValidateVolumeData(int db_handle, const string &symbol = "", const string &timeframe = "");
-    int ValidateTimestamps(int db_handle, const string &symbol = "", const string &timeframe = "");
+    int ValidateHashes(int db_handle, string symbol = "", string timeframe = "");
+    int ValidateOHLCRules(int db_handle, string symbol = "", string timeframe = "");
+    int ValidateVolumeData(int db_handle, string symbol = "", string timeframe = "");
+    int ValidateTimestamps(int db_handle, string symbol = "", string timeframe = "");
     int DetectDuplicates(int db_handle);
     
     // Individual record validation
     bool ValidateRecord(int db_handle, const string &symbol, const string &timeframe, datetime timestamp);
     bool ValidateOHLCValues(double open, double high, double low, double close);
     bool ValidateVolumeValues(long tick_volume, long real_volume);
-    bool ValidateHashValue(const string &stored_hash, const string &calculated_hash);
-    
+    bool ValidateHashValue(const string &stored_hash, const string &calculated_hash);    
     // Hash operations
     string RecalculateHash(double open, double high, double low, double close, long volume, datetime timestamp);
-    bool VerifyStoredHash(int db_handle, const string &symbol, const string &timeframe, datetime timestamp);
+    bool VerifyStoredHash(int db_handle, string symbol, string timeframe, datetime timestamp);
     
     // Issue management
     int GetDetectedIssuesCount() const { return ArraySize(m_detected_issues); }
     SIntegrityResult GetIssue(int index);
-    SIntegrityResult[] GetAllIssues();
-    SIntegrityResult[] GetIssuesByType(ENUM_INTEGRITY_ISSUE issue_type);
+    int GetAllIssues(SIntegrityResult &issues[]);
+    int GetIssuesByType(SIntegrityResult &issues[], ENUM_INTEGRITY_ISSUE issue_type);
     
     // Reporting
     string GetValidationReport();
@@ -230,7 +231,7 @@ int CIntegrityValidator::DetectCorruption()
 //+------------------------------------------------------------------+
 //| Validate specific database                                       |
 //+------------------------------------------------------------------+
-int CIntegrityValidator::ValidateDatabase(int db_handle, const string &db_name)
+int CIntegrityValidator::ValidateDatabase(int db_handle, string db_name)
 {
     if(db_handle == INVALID_HANDLE) {
         return 0;
@@ -297,7 +298,7 @@ int CIntegrityValidator::ValidateDatabase(int db_handle, const string &db_name)
 //+------------------------------------------------------------------+
 //| Validate symbol/timeframe data                                   |
 //+------------------------------------------------------------------+
-int CIntegrityValidator::ValidateSymbolData(int db_handle, const string &symbol, const string &timeframe)
+int CIntegrityValidator::ValidateSymbolData(int db_handle, string symbol, string timeframe)
 {
     int symbol_issues = 0;
     
@@ -327,7 +328,7 @@ int CIntegrityValidator::ValidateSymbolData(int db_handle, const string &symbol,
 //+------------------------------------------------------------------+
 //| Validate hash integrity                                          |
 //+------------------------------------------------------------------+
-int CIntegrityValidator::ValidateHashes(int db_handle, const string &symbol, const string &timeframe)
+int CIntegrityValidator::ValidateHashes(int db_handle, string symbol, string timeframe)
 {
     string where_clause = "";
     if(symbol != "" && timeframe != "") {
@@ -409,7 +410,7 @@ int CIntegrityValidator::ValidateHashes(int db_handle, const string &symbol, con
 //+------------------------------------------------------------------+
 //| Validate OHLC rules                                              |
 //+------------------------------------------------------------------+
-int CIntegrityValidator::ValidateOHLCRules(int db_handle, const string &symbol, const string &timeframe)
+int CIntegrityValidator::ValidateOHLCRules(int db_handle, string symbol, string timeframe)
 {
     string where_clause = "";
     if(symbol != "" && timeframe != "") {
@@ -502,7 +503,7 @@ bool CIntegrityValidator::ValidateOHLCValues(double open, double high, double lo
 //+------------------------------------------------------------------+
 //| Validate volume data                                             |
 //+------------------------------------------------------------------+
-int CIntegrityValidator::ValidateVolumeData(int db_handle, const string &symbol, const string &timeframe)
+int CIntegrityValidator::ValidateVolumeData(int db_handle, string symbol, string timeframe)
 {
     // Simplified volume validation - check for negative or zero volumes
     string where_clause = "";
@@ -537,7 +538,7 @@ int CIntegrityValidator::ValidateVolumeData(int db_handle, const string &symbol,
 //+------------------------------------------------------------------+
 //| Validate timestamp sequence                                      |
 //+------------------------------------------------------------------+
-int CIntegrityValidator::ValidateTimestamps(int db_handle, const string &symbol, const string &timeframe)
+int CIntegrityValidator::ValidateTimestamps(int db_handle, string symbol, string timeframe)
 {
     // Check for duplicate timestamps or invalid sequences
     string where_clause = "";
@@ -595,9 +596,9 @@ int CIntegrityValidator::DetectDuplicates(int db_handle)
 //+------------------------------------------------------------------+
 //| Add detected issue to the list                                  |
 //+------------------------------------------------------------------+
-void CIntegrityValidator::AddDetectedIssue(const string &db_name, const string &symbol, const string &timeframe,
+void CIntegrityValidator::AddDetectedIssue(string db_name, string symbol, string timeframe,
                                           datetime timestamp, ENUM_INTEGRITY_ISSUE issue_type,
-                                          const string &description, int severity)
+                                          string description, int severity)
 {
     int size = ArraySize(m_detected_issues);
     ArrayResize(m_detected_issues, size + 1);
@@ -630,10 +631,65 @@ bool CIntegrityValidator::IsAutoRepairable(ENUM_INTEGRITY_ISSUE issue_type)
         case INTEGRITY_INVALID_VOLUME:
         case INTEGRITY_INVALID_TIMESTAMP:
             return false; // These need manual review or data refetch
-            
-        default:
+              default:
             return false;
     }
+}
+
+//+------------------------------------------------------------------+
+//| Get specific issue by index                                      |
+//+------------------------------------------------------------------+
+SIntegrityResult CIntegrityValidator::GetIssue(int index)
+{
+    SIntegrityResult empty = {};
+    if(index < 0 || index >= ArraySize(m_detected_issues)) {
+        return empty;
+    }
+    return m_detected_issues[index];
+}
+
+//+------------------------------------------------------------------+
+//| Get all detected issues                                          |
+//+------------------------------------------------------------------+
+int CIntegrityValidator::GetAllIssues(SIntegrityResult &issues[])
+{
+    int count = ArraySize(m_detected_issues);
+    ArrayResize(issues, count);
+    
+    for(int i = 0; i < count; i++) {
+        issues[i] = m_detected_issues[i];
+    }
+    
+    return count;
+}
+
+//+------------------------------------------------------------------+
+//| Get issues by specific type                                      |
+//+------------------------------------------------------------------+
+int CIntegrityValidator::GetIssuesByType(SIntegrityResult &issues[], ENUM_INTEGRITY_ISSUE issue_type)
+{
+    int count = 0;
+    int total = ArraySize(m_detected_issues);
+    
+    // First pass: count matching issues
+    for(int i = 0; i < total; i++) {
+        if(m_detected_issues[i].issue_type == issue_type) {
+            count++;
+        }
+    }
+    
+    // Resize output array
+    ArrayResize(issues, count);
+    
+    // Second pass: copy matching issues
+    int idx = 0;
+    for(int i = 0; i < total; i++) {
+        if(m_detected_issues[i].issue_type == issue_type) {
+            issues[idx++] = m_detected_issues[i];
+        }
+    }
+    
+    return count;
 }
 
 //+------------------------------------------------------------------+

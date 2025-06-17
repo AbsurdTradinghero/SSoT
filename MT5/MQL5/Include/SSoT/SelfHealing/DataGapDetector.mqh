@@ -5,6 +5,9 @@
 #property copyright "ATH Trading System"
 #property version   "1.0.0"
 
+#ifndef SSOT_DATA_GAP_DETECTOR_MQH
+#define SSOT_DATA_GAP_DETECTOR_MQH
+
 #include <SSoT/HashUtils.mqh>
 
 //+------------------------------------------------------------------+
@@ -67,11 +70,10 @@ public:
     bool AnalyzeContinuity(int db_handle, const string &symbol, const string &timeframe);
     bool ValidateDataSequence(int db_handle, const string &symbol, const string &timeframe, 
                              datetime start_time, datetime end_time);
-    
-    // Gap information
+      // Gap information
     int GetDetectedGapsCount() const { return ArraySize(m_detected_gaps); }
     SDataGap GetGap(int index);
-    SDataGap[] GetAllGaps();
+    int GetAllGaps(SDataGap &gaps[]);
     string GetGapReport();
     
     // Utility methods
@@ -419,9 +421,35 @@ int GetTimeframeMinutes(const string &timeframe)
 //+------------------------------------------------------------------+
 bool CDataGapDetector::IsWeekend(datetime time)
 {
-    MqlDateTime dt;
-    TimeToStruct(time, dt);
+    MqlDateTime dt;    TimeToStruct(time, dt);
     return (dt.day_of_week == 0 || dt.day_of_week == 6); // Sunday or Saturday
+}
+
+//+------------------------------------------------------------------+
+//| Get specific gap by index                                        |
+//+------------------------------------------------------------------+
+SDataGap CDataGapDetector::GetGap(int index)
+{
+    SDataGap empty = {};
+    if(index < 0 || index >= ArraySize(m_detected_gaps)) {
+        return empty;
+    }
+    return m_detected_gaps[index];
+}
+
+//+------------------------------------------------------------------+
+//| Get all detected gaps                                            |
+//+------------------------------------------------------------------+
+int CDataGapDetector::GetAllGaps(SDataGap &gaps[])
+{
+    int count = ArraySize(m_detected_gaps);
+    ArrayResize(gaps, count);
+    
+    for(int i = 0; i < count; i++) {
+        gaps[i] = m_detected_gaps[i];
+    }
+    
+    return count;
 }
 
 //+------------------------------------------------------------------+
@@ -444,10 +472,10 @@ string CDataGapDetector::GetGapReport()
                                  gap.missing_bars, gap.severity);
         }
     } else {
-        report += "✅ No data gaps detected\n";
-    }
+        report += "✅ No data gaps detected\n";    }
     
     return report;
 }
 
+#endif // SSOT_DATA_GAP_DETECTOR_MQH
 #endif // SSOT_DATA_GAP_DETECTOR_MQH
