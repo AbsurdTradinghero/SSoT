@@ -67,10 +67,11 @@ public:
     
     //--- Test Database Functions
     bool GenerateTestDatabases(void);
-    bool DeleteTestDatabases(void);
-    
-    //--- Event Handling
+    bool DeleteTestDatabases(void);    //--- Event Handling
     void HandleChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam);
+      //--- Data Comparison Display (Live Mode Only)
+    void CreateBrokerVsDatabaseDisplay(string &symbols[], ENUM_TIMEFRAMES &timeframes[]);
+    void UpdateBrokerVsDatabaseDisplay(string &symbols[], ENUM_TIMEFRAMES &timeframes[]);
     
 private:
     //--- Helper Methods
@@ -300,13 +301,21 @@ bool CTestPanelRefactored::DeleteTestDatabases(void)
 //+------------------------------------------------------------------+
 void CTestPanelRefactored::HandleChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)
 {
+    Print("[EVENT] Chart event received - ID: ", id, ", sparam: ", sparam);
+    
     if(id == CHARTEVENT_OBJECT_CLICK) {
+        Print("[EVENT] Object click detected: ", sparam);
+        Print("[EVENT] Looking for button: ", m_object_prefix + "CopyButton");
+        
         if(sparam == m_object_prefix + "CopyButton") {
-            Print("[EVENT] Copy button clicked - generating report...");
+            Print("[EVENT] ✅ Copy button clicked - generating report...");
+            Print("[EVENT] Test mode: ", m_test_mode_active ? "TEST" : "LIVE");
+            Print("[EVENT] Main DB handle: ", m_main_db);
+            
             if(CopyToClipboard()) {
-                Print("[EVENT] Report copied to clipboard successfully");
+                Print("[EVENT] ✅ Report copied to clipboard successfully");
             } else {
-                Print("[EVENT] Failed to copy report to clipboard");
+                Print("[EVENT] ❌ Failed to copy report to clipboard");
             }
         }
         else if(sparam == m_object_prefix + "GenerateButton") {
@@ -352,6 +361,40 @@ void CTestPanelRefactored::PrintDatabaseStatus(void)
 //| Update last display time                                        |
 //+------------------------------------------------------------------+
 void CTestPanelRefactored::UpdateLastDisplayTime(void)
+{    m_last_display_update = TimeCurrent();
+}
+
+//+------------------------------------------------------------------+
+//| Create Broker vs Database Display (Live Mode Only)             |
+//+------------------------------------------------------------------+
+void CTestPanelRefactored::CreateBrokerVsDatabaseDisplay(string &symbols[], ENUM_TIMEFRAMES &timeframes[])
 {
-    m_last_display_update = TimeCurrent();
+    if(m_test_mode_active) {
+        Print("[PANEL] Broker vs Database comparison only available in Live Mode");
+        return;
+    }
+    
+    if(m_main_db == INVALID_HANDLE) {
+        Print("[PANEL] Cannot create comparison - main database not connected");
+        return;
+    }
+    
+    Print("[PANEL] Creating Broker vs Database comparison display...");
+    m_visual.CreateBrokerVsDatabaseComparison(symbols, timeframes, m_main_db);
+}
+
+//+------------------------------------------------------------------+
+//| Update Broker vs Database Display                               |
+//+------------------------------------------------------------------+
+void CTestPanelRefactored::UpdateBrokerVsDatabaseDisplay(string &symbols[], ENUM_TIMEFRAMES &timeframes[])
+{
+    if(m_test_mode_active) {
+        return; // Only show in live mode
+    }
+    
+    if(m_main_db == INVALID_HANDLE) {
+        return;
+    }
+      m_visual.UpdateDataComparisonDisplay(symbols, timeframes, m_main_db);
+    UpdateLastDisplayTime();
 }

@@ -29,12 +29,13 @@ public:
     bool CreateVisualPanel(void);
     void UpdateVisualPanel(void);
     void CleanupVisualPanel(void);
-    void ForceCleanupAllSSoTObjects(void);
-    
-    //--- Database Display Methods
+    void ForceCleanupAllSSoTObjects(void);    //--- Database Display Methods
     void CreateFullDatabaseDisplay(bool test_mode, int main_db, int test_input_db, int test_output_db);
     void CreateDatabaseInfoDisplay(bool test_mode, int main_db, int test_input_db, int test_output_db);
     void CreateCandleCountDisplay(bool test_mode, int main_db, int test_input_db, int test_output_db);
+      //--- Data Comparison Display (Live Mode Only)
+    void CreateBrokerVsDatabaseComparison(string &symbols[], ENUM_TIMEFRAMES &timeframes[], int db_handle);
+    void UpdateDataComparisonDisplay(string &symbols[], ENUM_TIMEFRAMES &timeframes[], int db_handle);
     
     //--- Button Creation
     void CreateCopyButton(void);
@@ -52,6 +53,7 @@ private:
     void CreateModeDisplay(bool test_mode);
     void CreateDatabaseStatusDisplay(void);
     void CreateProgressDisplay(void);
+    void CreateSystemStatusDisplay(bool test_mode, int main_db);
     
     //--- Database Display Helpers
     void ParseDatabaseInfo(int db_handle, string db_name, string &info_lines[]);
@@ -70,23 +72,19 @@ bool CVisualDisplay::CreateVisualPanel(void)
     Print("[VISUAL] Creating visual panel...");
     
     // Clean up any existing objects first
-    CleanupVisualPanel();
-    
-    // Create background panel
+    CleanupVisualPanel();    // Create background panel
     string panel_name = m_object_prefix + "Panel";
-    if(ObjectFind(0, panel_name) < 0) {
-        ObjectCreate(0, panel_name, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+    if(ObjectFind(0, panel_name) < 0) {        ObjectCreate(0, panel_name, OBJ_EDIT, 0, 0, 0);  // Using EDIT for guaranteed opacity
         ObjectSetInteger(0, panel_name, OBJPROP_XDISTANCE, 10);
         ObjectSetInteger(0, panel_name, OBJPROP_YDISTANCE, 30);
         ObjectSetInteger(0, panel_name, OBJPROP_XSIZE, 1200);
-        ObjectSetInteger(0, panel_name, OBJPROP_YSIZE, 450);
-        ObjectSetInteger(0, panel_name, OBJPROP_BGCOLOR, clrDarkSlateGray);
+        ObjectSetInteger(0, panel_name, OBJPROP_YSIZE, 680); // Increased height for better spacing        ObjectSetInteger(0, panel_name, OBJPROP_BGCOLOR, C'0,0,128'); // Dark blue RGB color - fully opaque
         ObjectSetInteger(0, panel_name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
         ObjectSetInteger(0, panel_name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
-        ObjectSetInteger(0, panel_name, OBJPROP_COLOR, clrSilver);
-        ObjectSetInteger(0, panel_name, OBJPROP_STYLE, STYLE_SOLID);
-        ObjectSetInteger(0, panel_name, OBJPROP_WIDTH, 1);
-        ObjectSetInteger(0, panel_name, OBJPROP_BACK, true);
+        ObjectSetInteger(0, panel_name, OBJPROP_COLOR, clrWhite); // White border for better contrast
+        ObjectSetString(0, panel_name, OBJPROP_TEXT, ""); // Empty text for EDIT object
+        ObjectSetInteger(0, panel_name, OBJPROP_READONLY, true); // Make read-only
+        ObjectSetInteger(0, panel_name, OBJPROP_BACK, false); // Foreground object - blocks chart
         ObjectSetInteger(0, panel_name, OBJPROP_SELECTABLE, false);
         ObjectSetInteger(0, panel_name, OBJPROP_HIDDEN, false);
     }
@@ -113,9 +111,11 @@ void CVisualDisplay::CreateFullDatabaseDisplay(bool test_mode, int main_db, int 
     
     // Clear existing display objects
     ClearDatabaseDisplayObjects();
-    
-    // Create mode display
+      // Create mode display
     CreateModeDisplay(test_mode);
+    
+    // Create system status display
+    CreateSystemStatusDisplay(test_mode, main_db);
     
     // Create panel header
     CreatePanelHeader(65);
@@ -123,21 +123,37 @@ void CVisualDisplay::CreateFullDatabaseDisplay(bool test_mode, int main_db, int 
     // Define column positions and headers
     int col1_x = 40, col2_x = 420, col3_x = 800;
     int start_y = 85;
-    
-    if(test_mode) {
+      if(test_mode) {
         // Test Mode: Show all three databases
         CreateDatabaseColumn("MAIN DATABASE", main_db, "sourcedb.sqlite", col1_x, start_y, clrLime);
         CreateDatabaseColumn("TEST INPUT", test_input_db, "SSoT_input.db", col2_x, start_y, clrYellow);
         CreateDatabaseColumn("TEST OUTPUT", test_output_db, "SSoT_output.db", col3_x, start_y, clrCyan);
-    } else {
+        
+        // Create all action buttons for test mode
+        CreateCopyButton();
+        CreateGenerateTestDBsButton();
+        CreateDeleteTestDBsButton();    } else {
         // Live Mode: Show only main database (centered)
         CreateDatabaseColumn("LIVE DATABASE", main_db, "sourcedb.sqlite", col2_x, start_y, clrLime);
+        
+        // Create visual separator for live mode
+        string separator_obj = m_object_prefix + "Separator";
+        if(ObjectFind(0, separator_obj) < 0)
+            ObjectCreate(0, separator_obj, OBJ_LABEL, 0, 0, 0);
+        ObjectSetInteger(0, separator_obj, OBJPROP_XDISTANCE, 40);
+        ObjectSetInteger(0, separator_obj, OBJPROP_YDISTANCE, 330);
+        ObjectSetInteger(0, separator_obj, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+        ObjectSetInteger(0, separator_obj, OBJPROP_FONTSIZE, 10);
+        ObjectSetInteger(0, separator_obj, OBJPROP_COLOR, clrGray);
+        ObjectSetString(0, separator_obj, OBJPROP_FONT, "Arial");
+        ObjectSetString(0, separator_obj, OBJPROP_TEXT, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        ObjectSetInteger(0, separator_obj, OBJPROP_SELECTABLE, false);
+        ObjectSetInteger(0, separator_obj, OBJPROP_BACK, false);
+        ObjectSetInteger(0, separator_obj, OBJPROP_HIDDEN, false);
+        
+        // Create only copy button for live mode
+        CreateCopyButton();
     }
-    
-    // Create action buttons
-    CreateCopyButton();
-    CreateGenerateTestDBsButton();
-    CreateDeleteTestDBsButton();
     
     // Force redraw
     ChartRedraw(0);
@@ -320,18 +336,18 @@ void CVisualDisplay::CreateCopyButton(void)
     
     if(ObjectFind(0, button_name) < 0)
         ObjectCreate(0, button_name, OBJ_BUTTON, 0, 0, 0);
-    
-    ObjectSetInteger(0, button_name, OBJPROP_XDISTANCE, 20);
-    ObjectSetInteger(0, button_name, OBJPROP_YDISTANCE, 400);
-    ObjectSetInteger(0, button_name, OBJPROP_XSIZE, 120);
-    ObjectSetInteger(0, button_name, OBJPROP_YSIZE, 25);
+      // Position copy button prominently for live mode
+    ObjectSetInteger(0, button_name, OBJPROP_XDISTANCE, 50);
+    ObjectSetInteger(0, button_name, OBJPROP_YDISTANCE, 590);  // Moved down for better spacing
+    ObjectSetInteger(0, button_name, OBJPROP_XSIZE, 180);      // Made wider for better visibility
+    ObjectSetInteger(0, button_name, OBJPROP_YSIZE, 35);       // Made taller for better visibility
     ObjectSetInteger(0, button_name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
     ObjectSetInteger(0, button_name, OBJPROP_COLOR, clrWhite);
-    ObjectSetInteger(0, button_name, OBJPROP_BGCOLOR, clrBlue);
-    ObjectSetInteger(0, button_name, OBJPROP_BORDER_COLOR, clrGray);
-    ObjectSetString(0, button_name, OBJPROP_FONT, "Arial");
-    ObjectSetInteger(0, button_name, OBJPROP_FONTSIZE, 9);
-    ObjectSetString(0, button_name, OBJPROP_TEXT, "Copy to Clipboard");
+    ObjectSetInteger(0, button_name, OBJPROP_BGCOLOR, C'0,0,100'); // Dark blue RGB for solid appearance
+    ObjectSetInteger(0, button_name, OBJPROP_BORDER_COLOR, clrGold); // Gold border for prominence
+    ObjectSetString(0, button_name, OBJPROP_FONT, "Arial Bold");
+    ObjectSetInteger(0, button_name, OBJPROP_FONTSIZE, 11);    // Slightly larger font
+    ObjectSetString(0, button_name, OBJPROP_TEXT, "📋 Copy Report to Clipboard");
     ObjectSetInteger(0, button_name, OBJPROP_SELECTABLE, false);
     ObjectSetInteger(0, button_name, OBJPROP_HIDDEN, false);
 }
@@ -540,19 +556,204 @@ void CVisualDisplay::CreateCandleCountDisplay(bool test_mode, int main_db, int t
         ObjectSetString(0, obj, OBJPROP_TEXT, counts);
         ObjectSetInteger(0, obj, OBJPROP_SELECTABLE, false);
         ObjectSetInteger(0, obj, OBJPROP_BACK, false);
-        ObjectSetInteger(0, obj, OBJPROP_HIDDEN, false);
+        ObjectSetInteger(0, obj, OBJPROP_HIDDEN, false);    }
+}
+
+//+------------------------------------------------------------------+
+//| Create Broker vs Database Comparison Display                    |
+//+------------------------------------------------------------------+
+void CVisualDisplay::CreateBrokerVsDatabaseComparison(string &symbols[], ENUM_TIMEFRAMES &timeframes[], int db_handle)
+{
+    Print("[VISUAL] Creating Broker vs Database comparison display...");
+    
+    // Clear existing comparison objects
+    for(int i = ObjectsTotal(0, -1, -1) - 1; i >= 0; i--) {
+        string obj_name = ObjectName(0, i, -1, -1);
+        if(StringFind(obj_name, m_object_prefix + "Comparison") == 0) {
+            ObjectDelete(0, obj_name);
+        }
+    }    // Create comparison panel header
+    string header_obj = m_object_prefix + "ComparisonHeader";
+    ObjectCreate(0, header_obj, OBJ_LABEL, 0, 0, 0);
+    ObjectSetInteger(0, header_obj, OBJPROP_XDISTANCE, 40);
+    ObjectSetInteger(0, header_obj, OBJPROP_YDISTANCE, 350);  // Moved up for better spacing
+    ObjectSetInteger(0, header_obj, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+    ObjectSetInteger(0, header_obj, OBJPROP_FONTSIZE, 12);
+    ObjectSetInteger(0, header_obj, OBJPROP_COLOR, clrYellow);
+    ObjectSetString(0, header_obj, OBJPROP_FONT, "Arial Bold");
+    ObjectSetString(0, header_obj, OBJPROP_TEXT, "📊 BROKER vs DATABASE COMPARISON");
+    ObjectSetInteger(0, header_obj, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, header_obj, OBJPROP_BACK, false);
+    ObjectSetInteger(0, header_obj, OBJPROP_HIDDEN, false);
+    
+    // Create table headers
+    int start_y = 370;  // Adjusted to match header movement
+    int line_height = 16;
+    int col_width = 120;
+    
+    // Table headers
+    string headers[] = {"SYMBOL", "TIMEFRAME", "BROKER BARS", "DATABASE BARS", "DIFFERENCE", "STATUS"};
+    int header_x_positions[] = {40, 160, 280, 420, 560, 700};
+    
+    for(int h = 0; h < ArraySize(headers); h++) {
+        string header_name = m_object_prefix + "ComparisonTableHeader" + IntegerToString(h);
+        ObjectCreate(0, header_name, OBJ_LABEL, 0, 0, 0);
+        ObjectSetInteger(0, header_name, OBJPROP_XDISTANCE, header_x_positions[h]);
+        ObjectSetInteger(0, header_name, OBJPROP_YDISTANCE, start_y);
+        ObjectSetInteger(0, header_name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+        ObjectSetInteger(0, header_name, OBJPROP_FONTSIZE, 9);
+        ObjectSetInteger(0, header_name, OBJPROP_COLOR, clrCyan);
+        ObjectSetString(0, header_name, OBJPROP_FONT, "Arial Bold");
+        ObjectSetString(0, header_name, OBJPROP_TEXT, headers[h]);
+        ObjectSetInteger(0, header_name, OBJPROP_SELECTABLE, false);
+        ObjectSetInteger(0, header_name, OBJPROP_BACK, false);
+        ObjectSetInteger(0, header_name, OBJPROP_HIDDEN, false);
     }
+    
+    int current_y = start_y + line_height + 5;
+    int row_count = 0;
+    
+    // Loop through each symbol and timeframe combination
+    for(int s = 0; s < ArraySize(symbols); s++) {
+        for(int t = 0; t < ArraySize(timeframes); t++) {
+            string symbol = symbols[s];
+            ENUM_TIMEFRAMES timeframe = timeframes[t];
+            string tf_string = EnumToString(timeframe);
+            
+            // Get broker data count
+            int broker_bars = iBars(symbol, timeframe);
+            
+            // Get database data count
+            int db_bars = 0;
+            string sql = StringFormat("SELECT COUNT(*) FROM candle_data WHERE symbol='%s' AND timeframe='%s'", 
+                                    symbol, tf_string);
+            int request = DatabasePrepare(db_handle, sql);            if(request != INVALID_HANDLE) {
+                if(DatabaseRead(request)) {
+                    long count_value;
+                    if(DatabaseColumnLong(request, 0, count_value)) {
+                        db_bars = (int)count_value;
+                    }
+                }
+                DatabaseFinalize(request);
+            }
+            
+            // Calculate difference and status
+            int difference = broker_bars - db_bars;
+            string status;
+            color status_color;
+            
+            if(difference == 0) {
+                status = "✅ SYNCED";
+                status_color = clrLime;
+            } else if(MathAbs(difference) <= 5) {
+                status = "⚠️ MINOR GAP";
+                status_color = clrYellow;
+            } else {
+                status = "❌ MAJOR GAP";
+                status_color = clrRed;
+            }
+            
+            // Create row data
+            string row_data[] = {
+                symbol,
+                tf_string,
+                IntegerToString(broker_bars),
+                IntegerToString(db_bars),
+                IntegerToString(difference),
+                status
+            };
+            
+            color row_colors[] = {clrSilver, clrSilver, clrWhite, clrWhite, clrOrange, status_color};
+            
+            // Create row objects
+            for(int col = 0; col < ArraySize(row_data); col++) {
+                string cell_name = m_object_prefix + "ComparisonCell_" + IntegerToString(row_count) + "_" + IntegerToString(col);
+                ObjectCreate(0, cell_name, OBJ_LABEL, 0, 0, 0);
+                ObjectSetInteger(0, cell_name, OBJPROP_XDISTANCE, header_x_positions[col]);
+                ObjectSetInteger(0, cell_name, OBJPROP_YDISTANCE, current_y);
+                ObjectSetInteger(0, cell_name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+                ObjectSetInteger(0, cell_name, OBJPROP_FONTSIZE, 8);
+                ObjectSetInteger(0, cell_name, OBJPROP_COLOR, row_colors[col]);
+                ObjectSetString(0, cell_name, OBJPROP_FONT, "Arial");
+                ObjectSetString(0, cell_name, OBJPROP_TEXT, row_data[col]);
+                ObjectSetInteger(0, cell_name, OBJPROP_SELECTABLE, false);
+                ObjectSetInteger(0, cell_name, OBJPROP_BACK, false);
+                ObjectSetInteger(0, cell_name, OBJPROP_HIDDEN, false);
+            }
+            
+            current_y += line_height;
+            row_count++;
+        }
+    }
+    
+    Print("[VISUAL] Broker vs Database comparison created with ", row_count, " rows");
+}
+
+//+------------------------------------------------------------------+
+//| Update Data Comparison Display                                  |
+//+------------------------------------------------------------------+
+void CVisualDisplay::UpdateDataComparisonDisplay(string &symbols[], ENUM_TIMEFRAMES &timeframes[], int db_handle)
+{
+    CreateBrokerVsDatabaseComparison(symbols, timeframes, db_handle);
+    ChartRedraw(0);
 }
 
 //+------------------------------------------------------------------+
 //| Cleanup all objects                                             |
 //+------------------------------------------------------------------+
 void CVisualDisplay::CleanupAllObjects(void)
-{
-    // Basic cleanup of main panel objects
+{    // Basic cleanup of main panel objects
     ObjectDelete(0, m_object_prefix + "Panel");
     ObjectDelete(0, m_object_prefix + "Mode");
-    ObjectDelete(0, m_object_prefix + "CopyButton");
-    ObjectDelete(0, m_object_prefix + "GenerateButton");
+    ObjectDelete(0, m_object_prefix + "SystemStatus");
+    ObjectDelete(0, m_object_prefix + "Separator");
+    ObjectDelete(0, m_object_prefix + "CopyButton");ObjectDelete(0, m_object_prefix + "GenerateButton");
     ObjectDelete(0, m_object_prefix + "DeleteButton");
+    
+    // Cleanup comparison objects
+    for(int i = ObjectsTotal(0, -1, -1) - 1; i >= 0; i--) {
+        string obj_name = ObjectName(0, i, -1, -1);
+        if(StringFind(obj_name, m_object_prefix + "Comparison") == 0) {
+            ObjectDelete(0, obj_name);
+        }
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Create System Status Display                                    |
+//+------------------------------------------------------------------+
+void CVisualDisplay::CreateSystemStatusDisplay(bool test_mode, int main_db)
+{
+    string status_obj = m_object_prefix + "SystemStatus";
+    
+    if(ObjectFind(0, status_obj) < 0)
+        ObjectCreate(0, status_obj, OBJ_LABEL, 0, 0, 0);
+    
+    // Determine system status
+    string status_text;
+    color status_color;
+    
+    if(main_db != INVALID_HANDLE) {
+        if(test_mode) {
+            status_text = "🔧 SYSTEM STATUS: TEST MODE ACTIVE";
+            status_color = clrYellow;
+        } else {
+            status_text = "✅ SYSTEM STATUS: LIVE MODE - OPERATIONAL";
+            status_color = clrLime;
+        }
+    } else {
+        status_text = "❌ SYSTEM STATUS: DATABASE DISCONNECTED";
+        status_color = clrRed;
+    }
+    
+    ObjectSetInteger(0, status_obj, OBJPROP_XDISTANCE, 850);
+    ObjectSetInteger(0, status_obj, OBJPROP_YDISTANCE, 50);
+    ObjectSetInteger(0, status_obj, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+    ObjectSetInteger(0, status_obj, OBJPROP_FONTSIZE, 10);
+    ObjectSetInteger(0, status_obj, OBJPROP_COLOR, status_color);
+    ObjectSetString(0, status_obj, OBJPROP_FONT, "Arial Bold");
+    ObjectSetString(0, status_obj, OBJPROP_TEXT, status_text);
+    ObjectSetInteger(0, status_obj, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, status_obj, OBJPROP_BACK, false);
+    ObjectSetInteger(0, status_obj, OBJPROP_HIDDEN, false);
 }

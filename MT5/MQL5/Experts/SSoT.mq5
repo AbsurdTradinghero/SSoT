@@ -17,7 +17,7 @@
 input group "=== Main Configuration ==="
 input string    SystemSymbols = "EURUSD";        // Symbols to monitor
 input string    SystemTimeframes = "M1,M5,M15,H1";             // Timeframes to monitor
-input bool      EnableTestMode = true;                        // Enable dual database testing
+input bool      EnableTestMode = false;                        // Enable dual database testing
 
 input group "=== Database Settings ==="
 input string    MainDatabase = "sourcedb.sqlite";              // Real-world source database
@@ -191,10 +191,15 @@ int OnInit()
         if(AutoHealingOnStartup) {
             g_self_healing.OnInitCheck();
         }
-        
-        Print("🔧 Simple self-healing system: ", g_self_healing.GetQuickHealthStatus());
+          Print("🔧 Simple self-healing system: ", g_self_healing.GetQuickHealthStatus());
     } else {
         Print("🔧 Simple self-healing system: DISABLED");
+    }
+    
+    // Create broker vs database comparison display (Live Mode Only)
+    if(!g_test_mode_active && g_test_panel != NULL) {
+        Print("📊 Creating Broker vs Database comparison display...");
+        g_test_panel.CreateBrokerVsDatabaseDisplay(g_symbols, g_timeframes);
     }
 
     // Initialize data fetcher
@@ -396,10 +401,14 @@ void OnTimer()
             Print("🔧 ", g_self_healing.GetHealthSummary());
         }
         */
-        
-        // Use test panel to display info
+          // Use test panel to display info
         if(g_test_panel != NULL) {
             g_test_panel.DisplayDatabaseOverview();
+            
+            // Update broker vs database comparison in live mode
+            if(!g_test_mode_active) {
+                g_test_panel.UpdateBrokerVsDatabaseDisplay(g_symbols, g_timeframes);
+            }
         }
         
         last_display = current_time;

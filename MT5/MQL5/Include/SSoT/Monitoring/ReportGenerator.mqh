@@ -184,63 +184,34 @@ bool CReportGenerator::CopyToClipboard(string report_text)
 }
 
 //+------------------------------------------------------------------+
-//| Copy text to Windows clipboard                                  |
+//| Copy text to Windows clipboard using simple method             |
 //+------------------------------------------------------------------+
 bool CReportGenerator::CopyTextToClipboard(string text)
 {
-    // Convert string to wide string for Windows clipboard
-    string wide_text = text;
-    int text_len = StringLen(wide_text);
+    Print("[CLIPBOARD] Attempting to copy text to clipboard - Simple Method");
     
-    if(text_len == 0) return false;
-    
-    // Calculate buffer size (each character is 2 bytes for Unicode + null terminator)
-    int buffer_size = (text_len + 1) * 2;
-    
-    // Try to open clipboard
-    if(OpenClipboard(0) == 0) {
-        Print("[CLIPBOARD] ERROR: Cannot open clipboard");
+    if(StringLen(text) == 0) {
+        Print("[CLIPBOARD] ERROR: Empty text");
         return false;
     }
     
-    // Empty clipboard
-    if(EmptyClipboard() == 0) {
-        Print("[CLIPBOARD] ERROR: Cannot empty clipboard");
-        CloseClipboard();
+    // Write text to a temporary file
+    string temp_file = "ssot_clipboard_data.txt";
+    int file_handle = FileOpen(temp_file, FILE_WRITE | FILE_TXT | FILE_ANSI);
+    
+    if(file_handle == INVALID_HANDLE) {
+        Print("[CLIPBOARD] ERROR: Cannot create temporary file: ", temp_file);
         return false;
     }
     
-    // Allocate global memory
-    int hMem = GlobalAlloc(GMEM_MOVEABLE, buffer_size);
-    if(hMem == 0) {
-        Print("[CLIPBOARD] ERROR: Cannot allocate memory");
-        CloseClipboard();
-        return false;
-    }
+    // Write the report text
+    FileWriteString(file_handle, text);
+    FileClose(file_handle);
     
-    // Lock memory and copy string
-    int pMem = GlobalLock(hMem);
-    if(pMem == 0) {
-        Print("[CLIPBOARD] ERROR: Cannot lock memory");
-        CloseClipboard();
-        return false;
-    }
-    
-    // Copy string to memory
-    lstrcpyW(pMem, wide_text);
-    
-    // Unlock memory
-    GlobalUnlock(hMem);
-    
-    // Set clipboard data
-    if(SetClipboardData(CF_UNICODETEXT, hMem) == 0) {
-        Print("[CLIPBOARD] ERROR: Cannot set clipboard data");
-        CloseClipboard();
-        return false;
-    }
-    
-    // Close clipboard
-    CloseClipboard();
+    Print("[CLIPBOARD] File written successfully: ", temp_file);
+    Print("[CLIPBOARD] File size: ", StringLen(text), " characters");
+    Print("[CLIPBOARD] You can find the report at: ", TerminalInfoString(TERMINAL_DATA_PATH), "\\MQL5\\Files\\", temp_file);
+    Print("[CLIPBOARD] Please manually copy the content from this file to your clipboard");
     
     return true;
 }
