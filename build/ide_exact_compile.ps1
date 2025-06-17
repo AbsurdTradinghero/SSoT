@@ -106,6 +106,10 @@ if (-not $SourceFilePath) {
     exit 1
 }
 
+# Define SourceLogPath and TargetFileName early, right after SourceFilePath is confirmed
+$SourceLogPath = [System.IO.Path]::ChangeExtension($SourceFilePath, ".log")
+$TargetFileName = [System.IO.Path]::GetFileName($SourceFilePath)
+
 # Clean if requested
 if ($Clean) {
     Write-Host "Cleaning compilation artifacts..."
@@ -120,6 +124,12 @@ if ($Clean) {
         Clear-Content $MetaEditorLogPath
         Write-Host "   Cleared compilation log"
     }
+}
+
+# Delete existing source-specific log file if it exists
+if (Test-Path $SourceLogPath) {
+    Write-Host "Deleting existing source log: $($SourceLogPath.Replace($WorkspaceRoot + '\\', ''))"
+    Remove-Item $SourceLogPath -Force -ErrorAction SilentlyContinue
 }
 
 # Prepare exact compilation command
@@ -147,27 +157,9 @@ try {
 Write-Host "`nParsing compilation results..."
 
 # Check for source-specific log file first (more detailed)
-$SourceLogPath = [System.IO.Path]::ChangeExtension($SourceFilePath, ".log")
-$TargetFileName = [System.IO.Path]::GetFileName($SourceFilePath)
-
 if (Test-Path $SourceLogPath) {
-    Write-Host "Found detailed source log: $($SourceLogPath.Replace($WorkspaceRoot + '\', ''))"
+    Write-Host "Found detailed source log: $($SourceLogPath.Replace($WorkspaceRoot + '\\', ''))"
     $SourceLogContent = Get-Content $SourceLogPath -ErrorAction SilentlyContinue
-    
-    if ($SourceLogContent) {
-        Write-Host "`nDetailed Compilation Output:"
-        Write-Host "=================================================================="
-        foreach ($Line in $SourceLogContent) {
-            if ($Line -match "error|Error|ERROR") {
-                Write-Host $Line -ForegroundColor Red
-            } elseif ($Line -match "warning|Warning|WARNING") {
-                Write-Host $Line -ForegroundColor Yellow
-            } else {
-                Write-Host $Line
-            }
-        }
-        Write-Host "=================================================================="
-    }
 }
 
 if (-not (Test-Path $MetaEditorLogPath)) {
@@ -181,15 +173,6 @@ $RelevantLogLines = $LogContent | Where-Object { $_ -match [regex]::Escape($Targ
 
 if (-not $RelevantLogLines) {
     Write-Host "ERROR: No compilation result found in log for $TargetFileName" -ForegroundColor Red
-    
-    # Show recent log entries
-    $RecentEntries = Get-Content $MetaEditorLogPath -Tail 10 | Where-Object { $_ -ne "" }
-    if ($RecentEntries) {
-        Write-Host "`nRecent log entries:"
-        foreach ($Entry in $RecentEntries) {
-            Write-Host "   $Entry"
-        }
-    }
     exit 1
 }
 
@@ -208,6 +191,22 @@ if ($LogLine -match "Compile.*$([regex]::Escape($TargetFileName)).*-\s*(\d+)\s+e
     Write-Host "   Success: $Success" -ForegroundColor $(if ($Success) { "Green" } else { "Red" })
     Write-Host "   Log: $LogLine"
     
+    # Display detailed source log content if errors were found and content is available
+    if ($Errors -gt 0 -and $SourceLogContent) {
+        Write-Host "`nDetailed Compilation Output from $TargetFileName.log:"
+        Write-Host "=================================================================="
+        foreach ($Line in $SourceLogContent) {
+            if ($Line -match "error|Error|ERROR") {
+                Write-Host $Line -ForegroundColor Red
+            } elseif ($Line -match "warning|Warning|WARNING") {
+                Write-Host $Line -ForegroundColor Yellow
+            } else {
+                Write-Host $Line
+            }
+        }
+        Write-Host "=================================================================="
+    }
+    
     # Check for generated .ex5 file
     $Ex5File = [System.IO.Path]::ChangeExtension($SourceFilePath, ".ex5")
     if ($Success -and (Test-Path $Ex5File)) {
@@ -222,26 +221,11 @@ if ($LogLine -match "Compile.*$([regex]::Escape($TargetFileName)).*-\s*(\d+)\s+e
     }
     
     # Show detailed info if requested or errors exist
-    if (($ShowDetails -or $Errors -gt 0) -and $Errors -gt 0) {
-        Write-Host "`nDetailed Error Analysis:" -ForegroundColor Red
-        Write-Host "   For detailed error information:"
-        Write-Host "      1. Open $TargetFileName in MetaEditor IDE"
-        Write-Host "      2. Press F7 or use Build menu -> Compile"
-        Write-Host "      3. Check the Errors tab in MetaEditor"
-        Write-Host "      4. Review full log: $($MetaEditorLogPath.Replace($WorkspaceRoot + '\', ''))"
-        
-        # Extract error details from recent log
-        $RecentErrorLines = Get-Content $MetaEditorLogPath -Tail 50 | Where-Object { 
-            $_ -match "error|Error|ERROR" -and $_ -match [regex]::Escape($TargetFileName)
-        }
-        
-        if ($RecentErrorLines) {
-            Write-Host "`n   Recent error entries:"
-            foreach ($ErrorLine in $RecentErrorLines) {
-                Write-Host "      $ErrorLine" -ForegroundColor DarkRed
-            }
-        }
-    }
+    # if (($ShowDetails -or $Errors -gt 0) -and $Errors -gt 0) {
+    #     Write-Host "`nDetailed Error Analysis:" -ForegroundColor Red
+    #     Write-Host "   For detailed error information:"
+    #     Write-Host "      Review full log: $($SourceLogPath.Replace($WorkspaceRoot + '\\', ''))"
+    # }
     
     Write-Host "`n=================================================================="
     if ($Success) {
