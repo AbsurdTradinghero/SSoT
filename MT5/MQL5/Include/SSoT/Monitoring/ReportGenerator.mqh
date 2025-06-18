@@ -5,6 +5,10 @@
 
 #include <SSoT/Monitoring/DatabaseOperations.mqh>
 
+// Forward declaration for external self-healing system access
+class CSimpleSSoTSelfHealingIntegration;
+extern CSimpleSSoTSelfHealingIntegration* g_self_healing;
+
 // Windows API for clipboard
 #import "user32.dll"
 int OpenClipboard(int hWndNewOwner);
@@ -50,6 +54,7 @@ private:
     //--- Helper Methods
     string GetReportHeader(bool test_mode);
     string GetDatabaseSection(string title, int db_handle, string db_name);
+    string GetHealthMonitorSection(void);  // New health monitoring section
     string GetTimeStamp(void);
 };
 
@@ -70,11 +75,13 @@ string CReportGenerator::GenerateReportText(bool test_mode, int main_db, int tes
         report += "\n";
         report += GetDatabaseSection("TEST INPUT DATABASE", test_input_db, "SSoT_input.db");
         report += "\n";
-        report += GetDatabaseSection("TEST OUTPUT DATABASE", test_output_db, "SSoT_output.db");
-    } else {
+        report += GetDatabaseSection("TEST OUTPUT DATABASE", test_output_db, "SSoT_output.db");    } else {
         // Live Mode: Only main database
         report += GetDatabaseSection("LIVE DATABASE", main_db, "sourcedb.sqlite");
     }
+    
+    // Add health monitoring section
+    report += "\n" + GetHealthMonitorSection();
     
     report += "\n" + StringFormat("Report generated at: %s", GetTimeStamp());
     
@@ -146,16 +153,18 @@ string CReportGenerator::GenerateComprehensiveReport(bool test_mode, int main_db
         // Test Mode: Comprehensive analysis of all databases
         report += m_db_ops.GetComprehensiveBreakdown(main_db, "sourcedb.sqlite") + "\n\n";
         report += m_db_ops.GetComprehensiveBreakdown(test_input_db, "SSoT_input.db") + "\n\n";
-        report += m_db_ops.GetComprehensiveBreakdown(test_output_db, "SSoT_output.db") + "\n";
-    } else {
+        report += m_db_ops.GetComprehensiveBreakdown(test_output_db, "SSoT_output.db") + "\n";    } else {
         // Live Mode: Comprehensive analysis of main database
         report += m_db_ops.GetComprehensiveBreakdown(main_db, "sourcedb.sqlite") + "\n";
     }
     
+    // Add health monitoring section to comprehensive report
+    report += "\n" + GetHealthMonitorSection();
+    
     report += "\n=== REPORT SUMMARY ===\n";
     report += StringFormat("Generated at: %s\n", GetTimeStamp());
     report += StringFormat("Total databases analyzed: %d\n", test_mode ? 3 : 1);
-    report += "Report type: Comprehensive Analysis\n";
+    report += "Report type: Comprehensive Analysis with Health Monitoring\n";
     
     return report;
 }
@@ -184,36 +193,68 @@ bool CReportGenerator::CopyToClipboard(string report_text)
 }
 
 //+------------------------------------------------------------------+
-//| Copy text to Windows clipboard using simple method             |
+//| Copy text to clipboard - File method with auto-open           |
 //+------------------------------------------------------------------+
 bool CReportGenerator::CopyTextToClipboard(string text)
 {
-    Print("[CLIPBOARD] Attempting to copy text to clipboard - Simple Method");
+    Print("[CLIPBOARD] Creating report file for easy copying...");
     
     if(StringLen(text) == 0) {
         Print("[CLIPBOARD] ERROR: Empty text");
         return false;
     }
     
-    // Write text to a temporary file
-    string temp_file = "ssot_clipboard_data.txt";
-    int file_handle = FileOpen(temp_file, FILE_WRITE | FILE_TXT | FILE_ANSI);
+    // Create a well-formatted file
+    string report_file = "SSoT_Report_" + TimeToString(TimeCurrent(), TIME_DATE) + ".txt";
+    StringReplace(report_file, ".", "_");
+    StringReplace(report_file, ":", "_");
+    
+    int file_handle = FileOpen(report_file, FILE_WRITE | FILE_TXT | FILE_UNICODE);
     
     if(file_handle == INVALID_HANDLE) {
-        Print("[CLIPBOARD] ERROR: Cannot create temporary file: ", temp_file);
+        Print("[CLIPBOARD] ERROR: Cannot create report file: ", report_file);
         return false;
     }
     
-    // Write the report text
+    // Write formatted header
+    FileWriteString(file_handle, "=======================================================\n");
+    FileWriteString(file_handle, "SSoT DATABASE REPORT\n");
+    FileWriteString(file_handle, "Generated: " + TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS) + "\n");
+    FileWriteString(file_handle, "=======================================================\n\n");
+    
+    // Write the actual report
     FileWriteString(file_handle, text);
+    
+    // Write footer
+    FileWriteString(file_handle, "\n\n=======================================================\n");
+    FileWriteString(file_handle, "End of Report - Copy content above to clipboard\n");
+    FileWriteString(file_handle, "=======================================================\n");
+    
     FileClose(file_handle);
     
-    Print("[CLIPBOARD] File written successfully: ", temp_file);
-    Print("[CLIPBOARD] File size: ", StringLen(text), " characters");
-    Print("[CLIPBOARD] You can find the report at: ", TerminalInfoString(TERMINAL_DATA_PATH), "\\MQL5\\Files\\", temp_file);
-    Print("[CLIPBOARD] Please manually copy the content from this file to your clipboard");
+    // Get full file path
+    string full_path = TerminalInfoString(TERMINAL_DATA_PATH) + "\\MQL5\\Files\\" + report_file;
     
-    return true;
+    Print("[CLIPBOARD] ✅ Report saved successfully!");
+    Print("[CLIPBOARD] 📁 File: ", report_file);
+    Print("[CLIPBOARD] 📂 Location: ", full_path);
+    Print("[CLIPBOARD] 📋 Opening file for easy copying...");
+    
+    // Try to open the file automatically
+    int result = ShellExecuteW(0, "open", full_path, "", "", 5); // SW_SHOW = 5
+    
+    if(result > 32) {
+        Print("[CLIPBOARD] ✅ File opened successfully in default text editor");
+        Print("[CLIPBOARD] 📌 Instructions: Select All (Ctrl+A) then Copy (Ctrl+C)");
+        return true;
+    } else {
+        Print("[CLIPBOARD] ⚠️ Could not auto-open file (Error: ", result, ")");
+        Print("[CLIPBOARD] 📌 Manual Instructions:");
+        Print("[CLIPBOARD] 1. Navigate to: ", full_path);
+        Print("[CLIPBOARD] 2. Open the file in any text editor");
+        Print("[CLIPBOARD] 3. Select All (Ctrl+A) and Copy (Ctrl+C)");
+        return true; // Still success since file was created
+    }
 }
 
 //+------------------------------------------------------------------+
@@ -258,6 +299,43 @@ string CReportGenerator::GetDatabaseSection(string title, int db_handle, string 
     section += "CANDLE DATA:\n";
     section += m_db_ops.GetCandleDataInfo(db_handle, db_name) + "\n";
     
+    return section;
+}
+
+//+------------------------------------------------------------------+
+//| Get health monitoring section                                   |
+//+------------------------------------------------------------------+
+string CReportGenerator::GetHealthMonitorSection(void)
+{
+    string section = "";
+    section += "=============================================================\n";
+    section += "HEALTH MONITORING & SELF-HEALING STATUS\n";
+    section += "=============================================================\n";
+    
+    if(g_self_healing != NULL) {
+        section += "System Status: ACTIVE\n";
+        section += StringFormat("Quick Status: %s\n", g_self_healing.GetQuickHealthStatus());
+        section += "Health Summary:\n";
+        section += g_self_healing.GetHealthSummary() + "\n";
+        section += StringFormat("System Health: %s\n", g_self_healing.IsHealthy() ? "✅ HEALTHY" : "⚠️ ISSUES DETECTED");
+        section += StringFormat("Active Healing: %s\n", g_self_healing.IsActivelyHealing() ? "🔧 IN PROGRESS" : "🔄 MONITORING");
+    } else {
+        section += "System Status: NOT AVAILABLE\n";
+        section += "Self-healing system is not initialized or disabled\n";
+    }
+    
+    // Add system resource information
+    section += "\n--- System Resources ---\n";
+    section += StringFormat("Terminal Memory Usage: %d KB\n", TerminalInfoInteger(TERMINAL_MEMORY_USED));
+    section += StringFormat("Free Disk Space: %d MB\n", TerminalInfoInteger(TERMINAL_DISK_SPACE));
+    section += StringFormat("Connected to Trade Server: %s\n", TerminalInfoInteger(TERMINAL_CONNECTED) ? "✅ YES" : "❌ NO");
+      // Add EA performance metrics
+    section += "\n--- EA Performance ---\n";
+    section += StringFormat("Current Time: %s\n", TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS));
+    section += StringFormat("Terminal Local Time: %s\n", TimeToString(TimeLocal(), TIME_DATE | TIME_SECONDS));
+    section += StringFormat("Server Time Diff: %d seconds\n", (int)(TimeCurrent() - TimeLocal()));
+    
+    section += "=============================================================\n";
     return section;
 }
 

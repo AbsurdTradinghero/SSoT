@@ -12,12 +12,16 @@ public:
     //--- Constructor
     CDatabaseOperations(void) {}
     ~CDatabaseOperations(void) {}
-    
-    //--- Core Database Info Methods
+      //--- Core Database Info Methods
     string GetDatabaseInfo(int db_handle, string db_name);
     string GetCandleDataInfo(int db_handle, string db_name);
     string GetDetailedBreakdown(int db_handle, string db_name);
     string GetComprehensiveBreakdown(int db_handle, string db_name);
+      //--- Enhanced DBInfo Methods for Tracked Assets/Timeframes
+    string GetEnhancedDatabaseInfo(int db_handle, string db_name, string &tracked_symbols[], ENUM_TIMEFRAMES &tracked_timeframes[]);
+    bool UpdateDBInfoSummary(int db_handle, string &tracked_symbols[], ENUM_TIMEFRAMES &tracked_timeframes[]);
+    string GetTrackedAssetsSummary(int db_handle, string &tracked_symbols[], ENUM_TIMEFRAMES &tracked_timeframes[]);
+    string GetTimeframeFirstLastEntry(int db_handle, string symbol, string timeframe);
     
     //--- Display Methods
     void DisplayDBInfo(int db_handle, string db_name);
@@ -27,11 +31,17 @@ public:
     //--- Utility Methods
     string TimeframeToString(int timeframe);
     
+    //--- Debug Methods
+    string GetDatabaseSchema(int db_handle, string table_name);
+    string GetTableColumns(int db_handle, string table_name);
+    string GetSampleData(int db_handle, string table_name, int limit = 5);
+    
 private:
     //--- Helper methods
     string FindActiveTable(int db_handle);
     void GetUniqueAssets(int db_handle, string table_name, string &assets[]);
     int CountTotalEntries(int db_handle, string table_name);
+    int CountEntriesForAssetTimeframe(int db_handle, string table_name, string symbol, string timeframe);
 };
 
 //+------------------------------------------------------------------+
@@ -57,7 +67,7 @@ string CDatabaseOperations::GetDatabaseInfo(int db_handle, string db_name)
     info += "Local Time: " + TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS) + "\n";
     
     // Read DBInfo as key-value pairs
-    string broker_name = "", db_timezone_val = "", schema_version = "", database_type = "", database_version = "", created_at = "", setup_by = "";
+    string broker_name = "", server_name = "", db_timezone_val = "", schema_version = "", database_type = "", database_version = "", created_at = "", setup_by = "";
     int dbinfo_request = DatabasePrepare(db_handle, "SELECT key, value FROM DBInfo");
     if(dbinfo_request != INVALID_HANDLE) {
         while(DatabaseRead(dbinfo_request)) {
@@ -65,6 +75,7 @@ string CDatabaseOperations::GetDatabaseInfo(int db_handle, string db_name)
             DatabaseColumnText(dbinfo_request, 0, key);
             DatabaseColumnText(dbinfo_request, 1, value);
             if(key == "broker_name") broker_name = value;
+            else if(key == "server_name") server_name = value;
             else if(key == "timezone") db_timezone_val = value;
             else if(key == "schema_version") schema_version = value;
             else if(key == "database_type") database_type = value;
@@ -77,7 +88,8 @@ string CDatabaseOperations::GetDatabaseInfo(int db_handle, string db_name)
     
     info += "Source: " + db_name + "\n";
     info += "Broker: " + (broker_name != "" ? broker_name : "MISSING") + "\n";
-    info += "Timezone: UTC\n";
+    info += "Server: " + (server_name != "" ? server_name : "MISSING") + "\n";
+    info += "Timezone: " + (db_timezone_val != "" ? db_timezone_val : "UTC") + "\n";
     info += "Schema: " + (schema_version != "" ? schema_version : (database_version != "" ? database_version : "MISSING"));
     
     return info;
@@ -220,9 +232,8 @@ void CDatabaseOperations::DisplayDBInfo(int db_handle, string db_name)
     string local_timezone = StringFormat("GMT%s%d", (gmt_offset >= 0 ? "+" : ""), gmt_offset);
     Print("[DATA]      Timezone: " + local_timezone);
     Print("[DATA]      Local Time: " + TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS));
-    
-    // Read DBInfo as key-value pairs
-    string broker_name = "", db_timezone_val = "", schema_version = "", database_type = "", database_version = "", created_at = "", setup_by = "";
+      // Read DBInfo as key-value pairs
+    string broker_name = "", server_name = "", db_timezone_val = "", schema_version = "", database_type = "", database_version = "", created_at = "", setup_by = "";
     int dbinfo_request = DatabasePrepare(db_handle, "SELECT key, value FROM DBInfo");
     if(dbinfo_request != INVALID_HANDLE) {
         while(DatabaseRead(dbinfo_request)) {
@@ -230,6 +241,7 @@ void CDatabaseOperations::DisplayDBInfo(int db_handle, string db_name)
             DatabaseColumnText(dbinfo_request, 0, key);
             DatabaseColumnText(dbinfo_request, 1, value);
             if(key == "broker_name") broker_name = value;
+            else if(key == "server_name") server_name = value;
             else if(key == "timezone") db_timezone_val = value;
             else if(key == "schema_version") schema_version = value;
             else if(key == "database_type") database_type = value;
@@ -238,10 +250,10 @@ void CDatabaseOperations::DisplayDBInfo(int db_handle, string db_name)
             else if(key == "setup_by") setup_by = value;
         }
         DatabaseFinalize(dbinfo_request);
-    }
-    Print("[DATA]      - Source: " + db_name);
+    }    Print("[DATA]      - Source: " + db_name);
     Print("[DATA]      - Broker: " + (broker_name != "" ? broker_name : "MISSING"));
-    Print("[DATA]      - Timezone: UTC");
+    Print("[DATA]      - Server: " + (server_name != "" ? server_name : "MISSING"));
+    Print("[DATA]      - Timezone: " + (db_timezone_val != "" ? db_timezone_val : "UTC"));
     Print("[DATA]      - Schema: " + (schema_version != "" ? schema_version : (database_version != "" ? database_version : "MISSING")));
 }
 
@@ -452,4 +464,334 @@ string CDatabaseOperations::GetComprehensiveBreakdown(int db_handle, string db_n
     }
     
     return breakdown;
+}
+
+//+------------------------------------------------------------------+
+//| Get database schema information                                  |
+//+------------------------------------------------------------------+
+string CDatabaseOperations::GetDatabaseSchema(int db_handle, string table_name)
+{
+    string result = "";
+    if(db_handle == INVALID_HANDLE) {
+        return "Database not available";
+    }
+    
+    string sql = StringFormat("PRAGMA table_info(%s)", table_name);
+    int request = DatabasePrepare(db_handle, sql);
+    
+    if(request != INVALID_HANDLE) {
+        result = "Schema for " + table_name + ":\n";
+        while(DatabaseRead(request)) {
+            string col_name = "", col_type = "";
+            long col_id = 0, not_null = 0, pk = 0;
+            string default_val = "";
+            
+            DatabaseColumnLong(request, 0, col_id);
+            DatabaseColumnText(request, 1, col_name);
+            DatabaseColumnText(request, 2, col_type);
+            DatabaseColumnLong(request, 3, not_null);
+            DatabaseColumnText(request, 4, default_val);
+            DatabaseColumnLong(request, 5, pk);
+            
+            result += StringFormat("  %s: %s%s%s\n", 
+                col_name, col_type,
+                (not_null ? " NOT NULL" : ""),
+                (pk ? " PRIMARY KEY" : ""));
+        }
+        DatabaseFinalize(request);
+    } else {
+        result = "Error: Could not query table schema";
+    }
+    
+    return result;
+}
+
+//+------------------------------------------------------------------+
+//| Get table columns information                                    |
+//+------------------------------------------------------------------+
+string CDatabaseOperations::GetTableColumns(int db_handle, string table_name)
+{
+    string result = "";
+    if(db_handle == INVALID_HANDLE) {
+        return "Database not available";
+    }
+    
+    string sql = StringFormat("PRAGMA table_info(%s)", table_name);
+    int request = DatabasePrepare(db_handle, sql);
+    
+    if(request != INVALID_HANDLE) {
+        result = "Columns in " + table_name + ": ";
+        bool first = true;
+        while(DatabaseRead(request)) {
+            string col_name = "";
+            DatabaseColumnText(request, 1, col_name);
+            if(!first) result += ", ";
+            result += col_name;
+            first = false;
+        }
+        DatabaseFinalize(request);
+    } else {
+        result = "Error: Could not query table columns";
+    }
+    
+    return result;
+}
+
+//+------------------------------------------------------------------+
+//| Get sample data from table                                      |
+//+------------------------------------------------------------------+
+string CDatabaseOperations::GetSampleData(int db_handle, string table_name, int limit = 5)
+{
+    string result = "";
+    if(db_handle == INVALID_HANDLE) {
+        return "Database not available";
+    }
+    
+    string sql = StringFormat("SELECT * FROM %s LIMIT %d", table_name, limit);
+    int request = DatabasePrepare(db_handle, sql);
+    
+    if(request != INVALID_HANDLE) {
+        result = StringFormat("Sample data from %s (first %d rows):\n", table_name, limit);
+        int row_count = 0;
+        while(DatabaseRead(request)) {
+            row_count++;
+            result += StringFormat("Row %d: ", row_count);
+            
+            // Get basic column info
+            for(int col = 0; col < 8; col++) { // Show first 8 columns
+                string col_value = "";
+                if(DatabaseColumnText(request, col, col_value)) {
+                    if(col > 0) result += ", ";
+                    result += col_value;
+                }
+            }
+            result += "\n";
+        }
+        DatabaseFinalize(request);
+        
+        if(row_count == 0) {
+            result += "No data found in table\n";
+        }
+    } else {
+        result = "Error: Could not query sample data";
+    }
+    
+    return result;
+}
+
+//+------------------------------------------------------------------+
+//| Enhanced Database Info with Tracked Assets/Timeframes          |
+//+------------------------------------------------------------------+
+string CDatabaseOperations::GetEnhancedDatabaseInfo(int db_handle, string db_name, string &tracked_symbols[], ENUM_TIMEFRAMES &tracked_timeframes[])
+{
+    string info = GetDatabaseInfo(db_handle, db_name);
+    
+    if(db_handle == INVALID_HANDLE) {
+        return info;
+    }
+    
+    // Add tracked assets summary
+    info += "\n" + GetTrackedAssetsSummary(db_handle, tracked_symbols, tracked_timeframes);
+    
+    return info;
+}
+
+//+------------------------------------------------------------------+
+//| Get summary of tracked assets and timeframes                    |
+//+------------------------------------------------------------------+
+string CDatabaseOperations::GetTrackedAssetsSummary(int db_handle, string &tracked_symbols[], ENUM_TIMEFRAMES &tracked_timeframes[])
+{
+    string summary = "";
+    
+    if(db_handle == INVALID_HANDLE) {
+        return "Database not available for tracking summary";
+    }
+    
+    string active_table = FindActiveTable(db_handle);
+    if(active_table == "") {
+        return "No active data table found";
+    }
+    
+    summary += "=== TRACKED ASSETS SUMMARY ===\n";
+    summary += "Configured Symbols: ";
+    for(int i = 0; i < ArraySize(tracked_symbols); i++) {
+        if(i > 0) summary += ", ";
+        summary += tracked_symbols[i];
+    }
+    summary += "\n";
+    
+    summary += "Configured Timeframes: ";
+    for(int i = 0; i < ArraySize(tracked_timeframes); i++) {
+        if(i > 0) summary += ", ";
+        summary += TimeframeToString((int)tracked_timeframes[i]);
+    }
+    summary += "\n";
+    
+    // Show data availability for each tracked combination
+    summary += "\nData Availability:\n";
+    for(int s = 0; s < ArraySize(tracked_symbols); s++) {
+        for(int t = 0; t < ArraySize(tracked_timeframes); t++) {
+            string symbol = tracked_symbols[s];
+            string tf_string = TimeframeToString((int)tracked_timeframes[t]);
+            
+            int entry_count = CountEntriesForAssetTimeframe(db_handle, active_table, symbol, tf_string);
+            string first_last = GetTimeframeFirstLastEntry(db_handle, symbol, tf_string);
+            
+            summary += StringFormat("  %s-%s: %d entries", symbol, tf_string, entry_count);
+            if(entry_count > 0 && first_last != "") {
+                summary += " (" + first_last + ")";
+            }
+            summary += "\n";
+        }
+    }
+    
+    return summary;
+}
+
+//+------------------------------------------------------------------+
+//| Count entries for specific asset and timeframe                  |
+//+------------------------------------------------------------------+
+int CDatabaseOperations::CountEntriesForAssetTimeframe(int db_handle, string table_name, string symbol, string timeframe)
+{
+    if(db_handle == INVALID_HANDLE) return 0;
+    
+    string sql = StringFormat("SELECT COUNT(*) FROM %s WHERE asset_symbol='%s' AND timeframe='%s'", 
+                             table_name, symbol, timeframe);
+    int request = DatabasePrepare(db_handle, sql);
+      int count = 0;
+    if(request != INVALID_HANDLE) {
+        if(DatabaseRead(request)) {
+            long count_long = 0;
+            DatabaseColumnLong(request, 0, count_long);
+            count = (int)count_long;
+        }
+        DatabaseFinalize(request);
+    }
+    
+    return count;
+}
+
+//+------------------------------------------------------------------+
+//| Get first and last entry for timeframe                          |
+//+------------------------------------------------------------------+
+string CDatabaseOperations::GetTimeframeFirstLastEntry(int db_handle, string symbol, string timeframe)
+{
+    string result = "";
+    
+    if(db_handle == INVALID_HANDLE) {
+        return result;
+    }
+    
+    string active_table = FindActiveTable(db_handle);
+    if(active_table == "") {
+        return result;
+    }
+    
+    string sql = StringFormat("SELECT MIN(timestamp), MAX(timestamp) FROM %s WHERE asset_symbol='%s' AND timeframe='%s'", 
+                             active_table, symbol, timeframe);
+    
+    int request = DatabasePrepare(db_handle, sql);
+      if(request != INVALID_HANDLE) {
+        if(DatabaseRead(request)) {
+            long first_timestamp = 0, last_timestamp = 0;
+            DatabaseColumnLong(request, 0, first_timestamp);
+            DatabaseColumnLong(request, 1, last_timestamp);
+            
+            if(first_timestamp > 0 && last_timestamp > 0) {
+                datetime first_entry = (datetime)first_timestamp;
+                datetime last_entry = (datetime)last_timestamp;
+                
+                result = StringFormat("First: %s, Last: %s", 
+                    TimeToString(first_entry, TIME_DATE | TIME_SECONDS), 
+                    TimeToString(last_entry, TIME_DATE | TIME_SECONDS));
+            }
+        }
+        DatabaseFinalize(request);
+    }
+    
+    return result;
+}
+
+//+------------------------------------------------------------------+
+//| Update DBInfo with summary information                           |
+//+------------------------------------------------------------------+
+bool CDatabaseOperations::UpdateDBInfoSummary(int db_handle, string &tracked_symbols[], ENUM_TIMEFRAMES &tracked_timeframes[])
+{
+    if(db_handle == INVALID_HANDLE) {
+        return false;
+    }
+    
+    // Create tracked symbols list
+    string symbols_list = "";
+    for(int i = 0; i < ArraySize(tracked_symbols); i++) {
+        if(i > 0) symbols_list += ",";
+        symbols_list += tracked_symbols[i];
+    }
+    
+    // Create tracked timeframes list  
+    string timeframes_list = "";
+    for(int i = 0; i < ArraySize(tracked_timeframes); i++) {
+        if(i > 0) timeframes_list += ",";
+        timeframes_list += TimeframeToString((int)tracked_timeframes[i]);
+    }
+    
+    long current_time = TimeCurrent();
+    
+    // Insert/update tracked symbols
+    string sql = StringFormat("INSERT OR REPLACE INTO DBInfo (key, value, updated_at) VALUES ('tracked_symbols', '%s', %lld)", 
+                             symbols_list, current_time);
+    if(!DatabaseExecute(db_handle, sql)) {
+        Print("Error updating tracked_symbols in DBInfo");
+        return false;
+    }
+    
+    // Insert/update tracked timeframes
+    sql = StringFormat("INSERT OR REPLACE INTO DBInfo (key, value, updated_at) VALUES ('tracked_timeframes', '%s', %lld)", 
+                      timeframes_list, current_time);
+    if(!DatabaseExecute(db_handle, sql)) {
+        Print("Error updating tracked_timeframes in DBInfo");
+        return false;
+    }
+      // Insert/update last summary update time
+    sql = StringFormat("INSERT OR REPLACE INTO DBInfo (key, value, updated_at) VALUES ('last_summary_update', '%s', %lld)", 
+                      TimeToString(current_time, TIME_DATE | TIME_SECONDS), current_time);
+    if(!DatabaseExecute(db_handle, sql)) {
+        Print("Error updating last_summary_update in DBInfo");
+        return false;
+    }
+    
+    // Update broker name (refresh current broker info)
+    string broker_name = AccountInfoString(ACCOUNT_COMPANY);
+    if(broker_name == "" || broker_name == NULL) broker_name = "MISSING";
+    sql = StringFormat("INSERT OR REPLACE INTO DBInfo (key, value, updated_at) VALUES ('broker_name', '%s', %lld)", 
+                      broker_name, current_time);
+    if(!DatabaseExecute(db_handle, sql)) {
+        Print("Error updating broker_name in DBInfo");
+        return false;
+    }
+    
+    // Update server name (refresh current server info)
+    string server_name = AccountInfoString(ACCOUNT_SERVER);
+    if(server_name == "" || server_name == NULL) server_name = "MISSING";
+    sql = StringFormat("INSERT OR REPLACE INTO DBInfo (key, value, updated_at) VALUES ('server_name', '%s', %lld)", 
+                      server_name, current_time);
+    if(!DatabaseExecute(db_handle, sql)) {
+        Print("Error updating server_name in DBInfo");
+        return false;
+    }
+    
+    // Update timezone information (refresh current timezone)
+    MqlDateTime dt;
+    TimeCurrent(dt);
+    int gmt_offset = (int)((TimeCurrent() - TimeGMT()) / 3600);
+    string timezone_info = StringFormat("GMT%s%d", (gmt_offset >= 0 ? "+" : ""), gmt_offset);
+    sql = StringFormat("INSERT OR REPLACE INTO DBInfo (key, value, updated_at) VALUES ('timezone', '%s', %lld)", 
+                      timezone_info, current_time);
+    if(!DatabaseExecute(db_handle, sql)) {
+        Print("Error updating timezone in DBInfo");
+        return false;
+    }
+    
+    Print("✅ DBInfo summary updated successfully (Broker: ", broker_name, ", Server: ", server_name, ", Timezone: ", timezone_info, ")");
+    return true;
 }

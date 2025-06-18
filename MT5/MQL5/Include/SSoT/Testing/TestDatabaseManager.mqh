@@ -234,19 +234,23 @@ bool CTestDatabaseManager::SetupDatabaseSchema(int db_handle)
         Print("[TESTDB] ERROR: Failed to create DBInfo table");
         return false;
     }
-    
-    // Create AllCandleData table
+      // Create AllCandleData table - MUST match main database schema exactly
     string create_candles = "CREATE TABLE IF NOT EXISTS AllCandleData ("
                            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                           "symbol TEXT, "
-                           "timeframe INTEGER, "
-                           "datetime INTEGER, "
-                           "open REAL, "
-                           "high REAL, "
-                           "low REAL, "
-                           "close REAL, "
-                           "volume INTEGER, "
-                           "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)";
+                           "asset_symbol TEXT NOT NULL, "
+                           "timeframe TEXT NOT NULL, "
+                           "timestamp INTEGER NOT NULL, "
+                           "open REAL NOT NULL, "
+                           "high REAL NOT NULL, "
+                           "low REAL NOT NULL, "
+                           "close REAL NOT NULL, "
+                           "tick_volume INTEGER NOT NULL, "
+                           "real_volume INTEGER NOT NULL, "
+                           "hash TEXT NOT NULL, "
+                           "is_validated INTEGER DEFAULT 0, "
+                           "is_complete INTEGER DEFAULT 0, "
+                           "validation_time INTEGER DEFAULT 0, "
+                           "UNIQUE(asset_symbol, timeframe, timestamp));";
     
     if(!DatabaseExecute(db_handle, create_candles)) {
         Print("[TESTDB] ERROR: Failed to create AllCandleData table");
@@ -267,7 +271,7 @@ bool CTestDatabaseManager::PopulateTestData(int db_handle, string db_type)
     // Insert DBInfo entries
     string insert_broker = "INSERT OR REPLACE INTO DBInfo (key, value) VALUES ('broker_name', 'Test Broker')";
     string insert_timezone = "INSERT OR REPLACE INTO DBInfo (key, value) VALUES ('timezone', 'UTC')";
-    string insert_schema = "INSERT OR REPLACE INTO DBInfo (key, value) VALUES ('schema_version', '1.0.0')";
+    string insert_schema = "INSERT OR REPLACE INTO DBInfo (key, value) VALUES ('schema_version', '4.00')";
     string insert_type = "INSERT OR REPLACE INTO DBInfo (key, value) VALUES ('database_type', '" + db_type + " Test Database')";
     string insert_created = "INSERT OR REPLACE INTO DBInfo (key, value) VALUES ('created_at', '" + TimeToString(TimeCurrent()) + "')";
     string insert_setup = "INSERT OR REPLACE INTO DBInfo (key, value) VALUES ('setup_by', 'SSoT Test Panel')";
@@ -293,19 +297,23 @@ bool CTestDatabaseManager::PopulateTestData(int db_handle, string db_type)
             // Create 5 candles per symbol/timeframe combination
             for(int c = 0; c < 5; c++) {
                 datetime candle_time = base_time + (c * timeframes[t] * 60);
-                
-                // Generate sample OHLC data
+                  // Generate sample OHLC data
                 double base_price = 1.1000 + (s * 0.1000); // Different base prices per symbol
                 double open = base_price + (MathRand() % 100) * 0.0001;
                 double close = open + ((MathRand() % 200) - 100) * 0.0001;
                 double high = MathMax(open, close) + (MathRand() % 50) * 0.0001;
                 double low = MathMin(open, close) - (MathRand() % 50) * 0.0001;
-                long volume = 1000 + (MathRand() % 9000);
+                long tick_volume = 1000 + (MathRand() % 9000);
+                long real_volume = tick_volume * (80 + MathRand() % 40) / 100; // Real volume is usually lower
+                
+                // Use exact same schema as main database
+                string timeframe_str = EnumToString((ENUM_TIMEFRAMES)timeframes[t]);
+                string hash_val = StringFormat("%s_%s_%d", symbols[s], timeframe_str, candle_time);
                 
                 string insert_candle = StringFormat(
-                    "INSERT INTO AllCandleData (symbol, timeframe, datetime, open, high, low, close, volume) "
-                    "VALUES ('%s', %d, %d, %.5f, %.5f, %.5f, %.5f, %d)",
-                    symbols[s], timeframes[t], candle_time, open, high, low, close, volume
+                    "INSERT INTO AllCandleData (asset_symbol, timeframe, timestamp, open, high, low, close, tick_volume, real_volume, hash, is_validated, is_complete) "
+                    "VALUES ('%s', '%s', %d, %.5f, %.5f, %.5f, %.5f, %d, %d, '%s', 1, 1)",
+                    symbols[s], timeframe_str, candle_time, open, high, low, close, tick_volume, real_volume, hash_val
                 );
                 
                 if(!DatabaseExecute(db_handle, insert_candle)) {

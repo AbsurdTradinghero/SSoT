@@ -10,6 +10,24 @@
 int ShellExecuteW(int hwnd, string lpOperation, string lpFile, string lpParameters, string lpDirectory, int nShowCmd);
 #import
 
+// Windows API for clipboard
+#import "user32.dll"
+int OpenClipboard(int hWndNewOwner);
+int EmptyClipboard();
+int CloseClipboard();
+int SetClipboardData(int uFormat, int hMem);
+#import
+
+#import "kernel32.dll"
+int GlobalAlloc(int uFlags, int dwBytes);
+int GlobalLock(int hMem);
+int GlobalUnlock(int hMem);
+string lstrcpyW(int lpString1, string lpString2);
+#import
+
+#define CF_UNICODETEXT 13
+#define GMEM_MOVEABLE 2
+
 #define SW_HIDE 0
 
 //+------------------------------------------------------------------+
@@ -31,6 +49,7 @@ public:
     void CleanupVisualPanel(void);
     void ForceCleanupAllSSoTObjects(void);    //--- Database Display Methods
     void CreateFullDatabaseDisplay(bool test_mode, int main_db, int test_input_db, int test_output_db);
+    void CreateFullDatabaseDisplayWithTracking(bool test_mode, int main_db, int test_input_db, int test_output_db, string &tracked_symbols[], ENUM_TIMEFRAMES &tracked_timeframes[]);
     void CreateDatabaseInfoDisplay(bool test_mode, int main_db, int test_input_db, int test_output_db);
     void CreateCandleCountDisplay(bool test_mode, int main_db, int test_input_db, int test_output_db);
       //--- Data Comparison Display (Live Mode Only)
@@ -41,14 +60,20 @@ public:
     void CreateCopyButton(void);
     void CreateGenerateTestDBsButton(void);
     void CreateDeleteTestDBsButton(void);
-    
-    //--- Event Handling
+      //--- Event Handling
     void HandleChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam);
+      //--- Panel Content Capture
+    string CaptureActualPanelContent(void);    //--- Clipboard Operations (moved from ReportGenerator for efficiency)
+    bool CopyToClipboard(string text);
+    bool CopyTextToClipboard(string text);
+    
+    //--- Debug Methods
+    void CreateDatabaseDebugDisplay(int db_handle);
     
 private:
     //--- Panel Creation Helpers
-    void CreatePanelHeader(int y_pos);
-    void CreateDatabaseColumn(string title, int db_handle, string db_name, int x_pos, int y_pos, color header_color);
+    void CreatePanelHeader(int y_pos);    void CreateDatabaseColumn(string title, int db_handle, string db_name, int x_pos, int y_pos, color header_color);
+    void CreateEnhancedDatabaseColumn(string title, int db_handle, string db_name, int x_pos, int y_pos, color header_color, string &tracked_symbols[], ENUM_TIMEFRAMES &tracked_timeframes[]);
     void CreateColumnLine(string text, int x_pos, int y_pos, color text_color, bool bold = false);
     void CreateModeDisplay(bool test_mode);
     void CreateDatabaseStatusDisplay(void);
@@ -615,26 +640,65 @@ void CVisualDisplay::CreateBrokerVsDatabaseComparison(string &symbols[], ENUM_TI
     
     // Loop through each symbol and timeframe combination
     for(int s = 0; s < ArraySize(symbols); s++) {
-        for(int t = 0; t < ArraySize(timeframes); t++) {
-            string symbol = symbols[s];
+        for(int t = 0; t < ArraySize(timeframes); t++) {            string symbol = symbols[s];
             ENUM_TIMEFRAMES timeframe = timeframes[t];
-            string tf_string = EnumToString(timeframe);
+            
+            // Use proper timeframe conversion: PERIOD_M1 -> M1, etc.
+            CDatabaseOperations db_ops;
+            string tf_string = db_ops.TimeframeToString((int)timeframe);
             
             // Get broker data count
             int broker_bars = iBars(symbol, timeframe);
             
+            // DEBUG: Show what we're searching for
+            Print("[DEBUG] Searching for Symbol: '", symbol, "', Timeframe: '", tf_string, "' (converted from ", (int)timeframe, ")");
+            
+            // DEBUG: First, let's see what timeframe values actually exist in the database
+            string debug_sql = "SELECT DISTINCT timeframe FROM AllCandleData LIMIT 10";
+            int debug_request = DatabasePrepare(db_handle, debug_sql);
+            if(debug_request != INVALID_HANDLE) {
+                Print("[DEBUG] Timeframes actually in database:");
+                while(DatabaseRead(debug_request)) {
+                    string actual_tf = "";
+                    if(DatabaseColumnText(debug_request, 0, actual_tf)) {
+                        Print("[DEBUG]   - '", actual_tf, "'");
+                    }
+                }
+                DatabaseFinalize(debug_request);
+            }
+            
+            // DEBUG: Also check what symbols exist
+            string symbol_sql = "SELECT DISTINCT asset_symbol FROM AllCandleData LIMIT 10";
+            int symbol_request = DatabasePrepare(db_handle, symbol_sql);
+            if(symbol_request != INVALID_HANDLE) {
+                Print("[DEBUG] Symbols actually in database:");
+                while(DatabaseRead(symbol_request)) {
+                    string actual_symbol = "";
+                    if(DatabaseColumnText(symbol_request, 0, actual_symbol)) {
+                        Print("[DEBUG]   - '", actual_symbol, "'");
+                    }
+                }
+                DatabaseFinalize(symbol_request);
+            }
+            
             // Get database data count
             int db_bars = 0;
-            string sql = StringFormat("SELECT COUNT(*) FROM candle_data WHERE symbol='%s' AND timeframe='%s'", 
+            string sql = StringFormat("SELECT COUNT(*) FROM AllCandleData WHERE asset_symbol='%s' AND timeframe='%s'", 
                                     symbol, tf_string);
+            Print("[DEBUG] Executing query: ", sql);
             int request = DatabasePrepare(db_handle, sql);            if(request != INVALID_HANDLE) {
                 if(DatabaseRead(request)) {
                     long count_value;
                     if(DatabaseColumnLong(request, 0, count_value)) {
                         db_bars = (int)count_value;
+                        Print("[DEBUG] Query result: ", db_bars, " rows found");
                     }
+                } else {
+                    Print("[DEBUG] DatabaseRead failed for query: ", sql);
                 }
                 DatabaseFinalize(request);
+            } else {
+                Print("[DEBUG] DatabasePrepare failed for query: ", sql, ", Error: ", GetLastError());
             }
             
             // Calculate difference and status
@@ -702,12 +766,14 @@ void CVisualDisplay::UpdateDataComparisonDisplay(string &symbols[], ENUM_TIMEFRA
 //| Cleanup all objects                                             |
 //+------------------------------------------------------------------+
 void CVisualDisplay::CleanupAllObjects(void)
-{    // Basic cleanup of main panel objects
+{
+    // Basic cleanup of main panel objects
     ObjectDelete(0, m_object_prefix + "Panel");
     ObjectDelete(0, m_object_prefix + "Mode");
     ObjectDelete(0, m_object_prefix + "SystemStatus");
     ObjectDelete(0, m_object_prefix + "Separator");
-    ObjectDelete(0, m_object_prefix + "CopyButton");ObjectDelete(0, m_object_prefix + "GenerateButton");
+    ObjectDelete(0, m_object_prefix + "CopyButton");
+    ObjectDelete(0, m_object_prefix + "GenerateButton");
     ObjectDelete(0, m_object_prefix + "DeleteButton");
     
     // Cleanup comparison objects
@@ -756,4 +822,434 @@ void CVisualDisplay::CreateSystemStatusDisplay(bool test_mode, int main_db)
     ObjectSetInteger(0, status_obj, OBJPROP_SELECTABLE, false);
     ObjectSetInteger(0, status_obj, OBJPROP_BACK, false);
     ObjectSetInteger(0, status_obj, OBJPROP_HIDDEN, false);
+}
+
+//+------------------------------------------------------------------+
+//| Capture actual panel content from chart objects                 |
+//+------------------------------------------------------------------+
+//| Capture actual panel content from chart objects                 |
+//+------------------------------------------------------------------+
+string CVisualDisplay::CaptureActualPanelContent(void)
+{
+    Print("[PANEL CAPTURE] Reading actual panel content from chart objects...");
+    
+    string content = "";
+    content += "=======================================================\n";
+    content += "SSoT PANEL CONTENT CAPTURE\n";
+    content += "Generated: " + TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS) + "\n";
+    content += "=======================================================\n\n";
+    
+    // Get all objects on chart and filter for our prefix
+    int total_objects = ObjectsTotal(0, -1, -1);
+    string panel_objects[];
+    
+    // Collect all panel objects
+    for(int i = 0; i < total_objects; i++) {
+        string obj_name = ObjectName(0, i, -1, -1);
+        
+        // Only capture objects that belong to our panel
+        if(StringFind(obj_name, m_object_prefix) == 0) {
+            int new_size = ArraySize(panel_objects) + 1;
+            ArrayResize(panel_objects, new_size);
+            panel_objects[new_size - 1] = obj_name;
+        }
+    }
+    
+    Print("[PANEL CAPTURE] Found ", ArraySize(panel_objects), " panel objects");
+    
+    // Sort objects by Y position for logical reading order
+    for(int i = 0; i < ArraySize(panel_objects) - 1; i++) {
+        for(int j = i + 1; j < ArraySize(panel_objects); j++) {
+            int y_pos_i = (int)ObjectGetInteger(0, panel_objects[i], OBJPROP_YDISTANCE);
+            int y_pos_j = (int)ObjectGetInteger(0, panel_objects[j], OBJPROP_YDISTANCE);
+            
+            if(y_pos_i > y_pos_j) {
+                string temp = panel_objects[i];
+                panel_objects[i] = panel_objects[j];
+                panel_objects[j] = temp;
+            }
+        }
+    }
+    
+    // Capture content from each object
+    string last_section = "";
+    int current_y = -1;
+    
+    for(int i = 0; i < ArraySize(panel_objects); i++) {
+        string obj_name = panel_objects[i];
+        
+        // Skip the background panel itself
+        if(StringFind(obj_name, "Panel") >= 0 && ObjectGetInteger(0, obj_name, OBJPROP_TYPE) == OBJ_EDIT) {
+            continue;
+        }
+        
+        // Get object properties
+        ENUM_OBJECT obj_type = (ENUM_OBJECT)ObjectGetInteger(0, obj_name, OBJPROP_TYPE);
+        int y_pos = (int)ObjectGetInteger(0, obj_name, OBJPROP_YDISTANCE);
+        int x_pos = (int)ObjectGetInteger(0, obj_name, OBJPROP_XDISTANCE);
+        
+        // Add spacing between different Y levels
+        if(current_y != -1 && y_pos > current_y + 20) {
+            content += "\n";
+        }
+        current_y = y_pos;
+        
+        // Extract text content based on object type
+        if(obj_type == OBJ_LABEL) {
+            string text = ObjectGetString(0, obj_name, OBJPROP_TEXT);
+            if(StringLen(text) > 0) {
+                // Format based on object name pattern
+                if(StringFind(obj_name, "Header") >= 0) {
+                    content += "--- " + text + " ---\n";
+                } else if(StringFind(obj_name, "Comparison") >= 0) {
+                    if(StringFind(obj_name, "Header") >= 0) {
+                        content += "\n📊 " + text + "\n";
+                    } else {
+                        // Format table data
+                        content += text;
+                        if(x_pos < 200) content += "\t"; // Add tab for alignment
+                        else if(x_pos < 400) content += "\t";
+                        else if(x_pos < 600) content += "\t";
+                        else content += "\n"; // End of row
+                    }
+                } else {
+                    content += text + "\n";
+                }
+            }
+        } else if(obj_type == OBJ_BUTTON) {
+            string button_text = ObjectGetString(0, obj_name, OBJPROP_TEXT);
+            if(StringLen(button_text) > 0) {
+                content += "[BUTTON: " + button_text + "]\n";
+            }
+        }
+    }
+    
+    content += "\n=======================================================\n";
+    content += "Panel content captured from " + IntegerToString(ArraySize(panel_objects)) + " objects\n";
+    content += "Capture time: " + TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS) + "\n";
+    content += "=======================================================\n";
+    
+    Print("[PANEL CAPTURE] Successfully captured ", StringLen(content), " characters");
+    return content;
+}
+
+//+------------------------------------------------------------------+
+//| Copy text to clipboard (moved from ReportGenerator)            |
+//+------------------------------------------------------------------+
+bool CVisualDisplay::CopyToClipboard(string report_text)
+{
+    Print("[CLIPBOARD] Attempting to copy report to clipboard...");
+    
+    if(StringLen(report_text) == 0) {
+        Print("[CLIPBOARD] ERROR: Empty report text");
+        return false;
+    }
+    
+    bool result = CopyTextToClipboard(report_text);
+    
+    if(result) {
+        Print("[CLIPBOARD] SUCCESS: Report copied to clipboard (" + IntegerToString(StringLen(report_text)) + " characters)");
+    } else {
+        Print("[CLIPBOARD] ERROR: Failed to copy report to clipboard");
+    }
+    
+    return result;
+}
+
+//+------------------------------------------------------------------+
+//| Copy text to clipboard - File method with auto-open           |
+//+------------------------------------------------------------------+
+bool CVisualDisplay::CopyTextToClipboard(string text)
+{
+    Print("[CLIPBOARD] Creating report file for easy copying...");
+    
+    if(StringLen(text) == 0) {
+        Print("[CLIPBOARD] ERROR: Empty text");
+        return false;
+    }
+    
+    // Create a well-formatted file
+    string report_file = "SSoT_Panel_Export_" + TimeToString(TimeCurrent(), TIME_DATE) + ".txt";
+    StringReplace(report_file, ".", "_");
+    StringReplace(report_file, ":", "_");
+    
+    int file_handle = FileOpen(report_file, FILE_WRITE | FILE_TXT | FILE_UNICODE);
+    
+    if(file_handle == INVALID_HANDLE) {
+        Print("[CLIPBOARD] ERROR: Cannot create report file: ", report_file);
+        return false;
+    }
+    
+    // Write the actual captured panel content directly
+    FileWriteString(file_handle, text);
+    
+    FileClose(file_handle);
+    
+    // Get full file path
+    string full_path = TerminalInfoString(TERMINAL_DATA_PATH) + "\\MQL5\\Files\\" + report_file;
+    
+    Print("[CLIPBOARD] ✅ Panel content exported successfully!");
+    Print("[CLIPBOARD] 📁 File: ", report_file);
+    Print("[CLIPBOARD] 📂 Location: ", full_path);
+    Print("[CLIPBOARD] 📋 Opening file for easy copying...");
+    
+    // Try to open the file automatically
+    int result = ShellExecuteW(0, "open", full_path, "", "", 5); // SW_SHOW = 5
+    
+    if(result > 32) {
+        Print("[CLIPBOARD] ✅ File opened successfully in default text editor");
+        Print("[CLIPBOARD] 📌 Instructions: Select All (Ctrl+A) then Copy (Ctrl+C)");
+        return true;
+    } else {
+        Print("[CLIPBOARD] ⚠️ Could not auto-open file (Error: ", result, ")");
+        Print("[CLIPBOARD] 📌 Manual Instructions:");
+        Print("[CLIPBOARD] 1. Navigate to: ", full_path);
+        Print("[CLIPBOARD] 2. Open the file in any text editor");
+        Print("[CLIPBOARD] 3. Select All (Ctrl+A) and Copy (Ctrl+C)");
+        return true; // Still success since file was created
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Create database debug display                                    |
+//+------------------------------------------------------------------+
+void CVisualDisplay::CreateDatabaseDebugDisplay(int db_handle)
+{
+    CDatabaseOperations db_ops;
+    
+    Print("=== DATABASE DEBUG INFORMATION ===");
+    Print("Database handle: ", db_handle);
+    
+    if(db_handle == INVALID_HANDLE) {
+        Print("ERROR: Invalid database handle");
+        return;
+    }
+    
+    // Check what tables exist
+    Print("--- Checking available tables ---");
+    string tables[] = {"AllCandleData", "CandleData", "candle_data", "data"};
+    
+    for(int i = 0; i < ArraySize(tables); i++) {
+        string table = tables[i];
+        Print("Checking table: ", table);
+        
+        // Try to count rows
+        string sql = "SELECT COUNT(*) FROM " + table;
+        int request = DatabasePrepare(db_handle, sql);
+        
+        if(request != INVALID_HANDLE) {
+            if(DatabaseRead(request)) {
+                long count;
+                if(DatabaseColumnLong(request, 0, count)) {
+                    Print("  - Table '", table, "' exists with ", count, " rows");
+                    
+                    // Get schema
+                    string schema = db_ops.GetDatabaseSchema(db_handle, table);
+                    Print("  - Schema: ", schema);
+                    
+                    // Get sample data
+                    string sample = db_ops.GetSampleData(db_handle, table, 3);
+                    Print("  - Sample: ", sample);
+                }
+            }
+            DatabaseFinalize(request);
+        } else {
+            Print("  - Table '", table, "' does not exist or cannot be accessed");
+        }
+    }
+      // Check specific queries that are failing
+    Print("--- Testing specific queries ---");
+    string test_symbols[] = {"EURUSD", "GBPUSD"};
+    string test_timeframes[] = {"PERIOD_M1", "PERIOD_M5", "PERIOD_H1"};
+    
+    // First, check what symbols and timeframes actually exist in the database
+    Print("--- Checking what symbols exist in database ---");
+    string sql_symbols = "SELECT DISTINCT asset_symbol FROM AllCandleData LIMIT 10";
+    int request_symbols = DatabasePrepare(db_handle, sql_symbols);
+    if(request_symbols != INVALID_HANDLE) {
+        while(DatabaseRead(request_symbols)) {
+            string symbol = "";
+            DatabaseColumnText(request_symbols, 0, symbol);
+            Print("  - Found symbol: '", symbol, "'");
+        }
+        DatabaseFinalize(request_symbols);
+    }
+    
+    Print("--- Checking what timeframes exist in database ---");
+    string sql_timeframes = "SELECT DISTINCT timeframe FROM AllCandleData LIMIT 10";
+    int request_timeframes = DatabasePrepare(db_handle, sql_timeframes);
+    if(request_timeframes != INVALID_HANDLE) {
+        while(DatabaseRead(request_timeframes)) {
+            string tf = "";
+            DatabaseColumnText(request_timeframes, 0, tf);
+            Print("  - Found timeframe: '", tf, "'");
+        }
+        DatabaseFinalize(request_timeframes);
+    }
+    
+    for(int s = 0; s < ArraySize(test_symbols); s++) {
+        for(int t = 0; t < ArraySize(test_timeframes); t++) {
+            string symbol = test_symbols[s];
+            string tf = test_timeframes[t];
+            
+            string sql = StringFormat("SELECT COUNT(*) FROM AllCandleData WHERE asset_symbol='%s' AND timeframe='%s'", 
+                                    symbol, tf);
+            Print("Testing query: ", sql);
+            
+            int request = DatabasePrepare(db_handle, sql);
+            if(request != INVALID_HANDLE) {
+                if(DatabaseRead(request)) {
+                    long count;
+                    if(DatabaseColumnLong(request, 0, count)) {
+                        Print("  - Result: ", count, " rows for ", symbol, " ", tf);
+                    }
+                }
+                DatabaseFinalize(request);
+            } else {
+                Print("  - Query failed for ", symbol, " ", tf);
+            }
+        }
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Create database display with asset/timeframe tracking          |
+//+------------------------------------------------------------------+
+void CVisualDisplay::CreateFullDatabaseDisplayWithTracking(bool test_mode, int main_db, int test_input_db, int test_output_db, string &tracked_symbols[], ENUM_TIMEFRAMES &tracked_timeframes[])
+{
+    Print("[VISUAL] Creating enhanced database display with tracking...");
+    
+    // Clear existing display objects
+    ClearDatabaseDisplayObjects();
+    
+    // Create mode display
+    CreateModeDisplay(test_mode);
+    
+    // Create system status display
+    CreateSystemStatusDisplay(test_mode, main_db);
+    
+    // Create panel header
+    CreatePanelHeader(65);
+    
+    // Define column positions and headers
+    int col1_x = 40, col2_x = 420, col3_x = 800;
+    int start_y = 85;
+    
+    if(test_mode) {
+        // Test Mode: Show all three databases (use standard method for test databases)
+        CreateDatabaseColumn("MAIN DATABASE", main_db, "sourcedb.sqlite", col1_x, start_y, clrLime);
+        CreateDatabaseColumn("TEST INPUT", test_input_db, "SSoT_input.db", col2_x, start_y, clrYellow);
+        CreateDatabaseColumn("TEST OUTPUT", test_output_db, "SSoT_output.db", col3_x, start_y, clrCyan);
+        
+        // Create all action buttons for test mode
+        CreateCopyButton();
+        CreateGenerateTestDBsButton();
+        CreateDeleteTestDBsButton();
+    } else {
+        // Live Mode: Show enhanced main database (centered)
+        CreateEnhancedDatabaseColumn("LIVE DATABASE", main_db, "sourcedb.sqlite", col2_x, start_y, clrLime, tracked_symbols, tracked_timeframes);
+        
+        // Create visual separator for live mode
+        string separator_obj = m_object_prefix + "Separator";
+        if(ObjectFind(0, separator_obj) < 0)
+            ObjectCreate(0, separator_obj, OBJ_LABEL, 0, 0, 0);
+        ObjectSetInteger(0, separator_obj, OBJPROP_XDISTANCE, 40);
+        ObjectSetInteger(0, separator_obj, OBJPROP_YDISTANCE, 330);
+        ObjectSetInteger(0, separator_obj, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+        ObjectSetInteger(0, separator_obj, OBJPROP_FONTSIZE, 10);
+        ObjectSetInteger(0, separator_obj, OBJPROP_COLOR, clrGray);
+        ObjectSetString(0, separator_obj, OBJPROP_FONT, "Arial");
+        ObjectSetString(0, separator_obj, OBJPROP_TEXT, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        ObjectSetInteger(0, separator_obj, OBJPROP_SELECTABLE, false);
+        ObjectSetInteger(0, separator_obj, OBJPROP_BACK, false);
+        ObjectSetInteger(0, separator_obj, OBJPROP_HIDDEN, false);
+        
+        // Create only copy button for live mode
+        CreateCopyButton();
+    }
+    
+    // Force redraw
+    ChartRedraw(0);
+    
+    Print("[VISUAL] Enhanced database display with tracking created");
+}
+
+//+------------------------------------------------------------------+
+//| Create enhanced database column with tracking info              |
+//+------------------------------------------------------------------+
+void CVisualDisplay::CreateEnhancedDatabaseColumn(string title, int db_handle, string db_name, int x_pos, int y_pos, color header_color, string &tracked_symbols[], ENUM_TIMEFRAMES &tracked_timeframes[])
+{
+    int current_y = y_pos;
+    int line_height = 18;
+    
+    // Column header
+    string header_obj = m_object_prefix + "Header_" + IntegerToString(x_pos);
+    if(ObjectFind(0, header_obj) < 0)
+        ObjectCreate(0, header_obj, OBJ_LABEL, 0, 0, 0);
+    
+    ObjectSetInteger(0, header_obj, OBJPROP_XDISTANCE, x_pos);
+    ObjectSetInteger(0, header_obj, OBJPROP_YDISTANCE, current_y);
+    ObjectSetInteger(0, header_obj, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+    ObjectSetInteger(0, header_obj, OBJPROP_FONTSIZE, 10);
+    ObjectSetInteger(0, header_obj, OBJPROP_COLOR, header_color);
+    ObjectSetString(0, header_obj, OBJPROP_FONT, "Arial Bold");
+    ObjectSetString(0, header_obj, OBJPROP_TEXT, title);
+    ObjectSetInteger(0, header_obj, OBJPROP_BACK, false);
+    ObjectSetInteger(0, header_obj, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, header_obj, OBJPROP_HIDDEN, false);
+    
+    current_y += line_height + 5;
+    
+    // Connection status
+    string status_text = (db_handle != INVALID_HANDLE) ? "Status: CONNECTED" : "Status: DISCONNECTED";
+    color status_color = (db_handle != INVALID_HANDLE) ? clrLime : clrRed;
+    
+    CreateColumnLine(status_text, x_pos, current_y, status_color, true);
+    current_y += line_height;
+    
+    if(db_handle != INVALID_HANDLE) {
+        // Enhanced database information with tracking
+        CDatabaseOperations db_ops;
+        
+        if(ArraySize(tracked_symbols) > 0 && ArraySize(tracked_timeframes) > 0) {
+            // Use enhanced database info
+            string enhanced_info = db_ops.GetEnhancedDatabaseInfo(db_handle, db_name, tracked_symbols, tracked_timeframes);
+            
+            // Parse and display enhanced info
+            string info_lines[];
+            int line_count = StringSplit(enhanced_info, '\n', info_lines);
+            
+            for(int i = 0; i < line_count && i < 15; i++) { // Limit to 15 lines for display
+                string line = info_lines[i];
+                StringTrimLeft(line);
+                StringTrimRight(line);
+                
+                if(StringLen(line) > 0) {
+                    // Determine line color based on content
+                    color line_color = clrSilver;
+                    if(StringFind(line, "Tracked Symbols:") >= 0 || StringFind(line, "Tracked Timeframes:") >= 0) {
+                        line_color = clrYellow;
+                    } else if(StringFind(line, "Data Availability:") >= 0) {
+                        line_color = clrCyan;
+                    } else if(StringFind(line, " entries") >= 0) {
+                        line_color = clrLightGreen;
+                    }
+                    
+                    CreateColumnLine(line, x_pos, current_y, line_color, false);
+                    current_y += line_height;
+                }
+            }
+        } else {
+            // Fall back to standard database info
+            string info_lines[];
+            ParseDatabaseInfo(db_handle, db_name, info_lines);
+            
+            for(int i = 0; i < ArraySize(info_lines); i++) {
+                if(StringLen(info_lines[i]) > 0) {
+                    CreateColumnLine(info_lines[i], x_pos, current_y, clrSilver, false);
+                    current_y += line_height;
+                }
+            }
+        }
+    }
 }

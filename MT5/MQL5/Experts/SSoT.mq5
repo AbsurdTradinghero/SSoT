@@ -157,14 +157,13 @@ int OnInit()
     if(g_test_panel == NULL) {
         Print("❌ ERROR: Failed to create test panel");
         return INIT_FAILED;
-    }
-      // Initialize test panel with real database handles
-    if(!g_test_panel.Initialize(g_test_mode_active, g_main_db, g_test_input_db, g_test_output_db)) {
-        Print("❌ ERROR: Failed to initialize test panel");
+    }    // Initialize test panel with real database handles and tracked assets/timeframes
+    if(!g_test_panel.InitializeWithTracking(g_test_mode_active, g_main_db, g_symbols, g_timeframes, g_test_input_db, g_test_output_db)) {
+        Print("❌ ERROR: Failed to initialize test panel with tracking");
         delete g_test_panel;
         g_test_panel = NULL;
         return INIT_FAILED;
-    }    // Show the visual test panel immediately
+    }// Show the visual test panel immediately
     g_test_panel.CreateVisualPanel();
     g_test_panel.UpdateVisualPanel();    ChartRedraw();
     

@@ -5,7 +5,6 @@
 
 #include <SSoT/Monitoring/DatabaseOperations.mqh>
 #include <SSoT/Monitoring/VisualDisplay.mqh>
-#include <SSoT/Monitoring/ReportGenerator.mqh>
 #include <SSoT/Testing/TestDatabaseManager.mqh>
 
 //+------------------------------------------------------------------+
@@ -22,6 +21,11 @@ private:
     // Operating mode
     bool m_test_mode_active;
     
+    // Tracked Assets and Timeframes
+    string m_tracked_symbols[];
+    ENUM_TIMEFRAMES m_tracked_timeframes[];
+    bool m_tracking_enabled;
+    
     // Display settings
     bool m_display_enabled;
     datetime m_last_display_update;
@@ -30,20 +34,18 @@ private:
     // Visual panel settings
     bool m_panel_created;
     string m_object_prefix;
-    
-    // Component instances
+      // Component instances
     CDatabaseOperations m_db_ops;
     CVisualDisplay m_visual;
-    CReportGenerator m_report_gen;
     CTestDatabaseManager m_test_db_mgr;
 
 public:
     //--- Constructor/Destructor
     CTestPanelRefactored(void);
     ~CTestPanelRefactored(void);
-    
-    //--- Initialization
+      //--- Initialization
     bool Initialize(bool test_mode, int main_db_handle, int test_input_handle = INVALID_HANDLE, int test_output_handle = INVALID_HANDLE);
+    bool InitializeWithTracking(bool test_mode, int main_db_handle, string &tracked_symbols[], ENUM_TIMEFRAMES &tracked_timeframes[], int test_input_handle = INVALID_HANDLE, int test_output_handle = INVALID_HANDLE);
     void Shutdown(void);
     
     //--- Mode Control
@@ -60,9 +62,9 @@ public:
     void UpdateVisualPanel(void);
     void CleanupVisualPanel(void);
     void ForceCleanupAllSSoTObjects(void);
-    
-    //--- Report Functions
+      //--- Report Functions
     bool CopyToClipboard(void);
+    bool CopyPanelContent(string &symbols[], ENUM_TIMEFRAMES &timeframes[]); // Copy actual panel content
     string GenerateReportText(void);
     
     //--- Test Database Functions
@@ -87,8 +89,10 @@ CTestPanelRefactored::CTestPanelRefactored(void) : m_visual("SSoT_")
     m_object_prefix = "SSoT_";
     m_main_db = INVALID_HANDLE;
     m_test_input_db = INVALID_HANDLE;
-    m_test_output_db = INVALID_HANDLE;
-    m_test_mode_active = false;
+    m_test_output_db = INVALID_HANDLE;    m_test_mode_active = false;
+    m_tracking_enabled = false;
+    ArrayResize(m_tracked_symbols, 0);
+    ArrayResize(m_tracked_timeframes, 0);
     m_display_enabled = true;
     m_last_display_update = 0;
     m_display_interval = 30; // Default 30 seconds
@@ -181,12 +185,30 @@ void CTestPanelRefactored::DisplayDatabaseOverview(void)
         
         Print("[DATA] DATABASE 3: TEST OUTPUT (SSoT_output.db)");
         m_db_ops.DisplayDBInfo(m_test_output_db, "SSoT_output.db");
-        m_db_ops.DisplayAllCandleData(m_test_output_db, "Test Output Database");
-    } else {
+        m_db_ops.DisplayAllCandleData(m_test_output_db, "Test Output Database");    } else {
         // Live Mode: Only main database
         Print("[DATA] DATABASE: MAIN (sourcedb.sqlite)");
-        m_db_ops.DisplayDBInfo(m_main_db, "sourcedb.sqlite");
-        m_db_ops.DisplayAllCandleData(m_main_db, "Live Database");
+        
+        if(m_tracking_enabled && ArraySize(m_tracked_symbols) > 0 && ArraySize(m_tracked_timeframes) > 0) {
+            // Use enhanced database info with tracked assets
+            Print("[DATA] Using enhanced database info with tracked assets/timeframes");
+            string enhanced_info = m_db_ops.GetEnhancedDatabaseInfo(m_main_db, "sourcedb.sqlite", m_tracked_symbols, m_tracked_timeframes);
+            Print("[DATA] Enhanced Database Info:");
+            Print(enhanced_info);
+            
+            // Display tracked assets summary
+            string tracking_summary = m_db_ops.GetTrackedAssetsSummary(m_main_db, m_tracked_symbols, m_tracked_timeframes);
+            Print("[DATA] Tracking Summary:");
+            Print(tracking_summary);
+        } else {
+            // Use standard database info
+            m_db_ops.DisplayDBInfo(m_main_db, "sourcedb.sqlite");
+            m_db_ops.DisplayAllCandleData(m_main_db, "Live Database");
+        }
+        
+        // Add debug information for database reading issues
+        Print("[DEBUG] Running database debug to investigate data reading issues...");
+        m_visual.CreateDatabaseDebugDisplay(m_main_db);
     }
     
     Print("[DATA] ================================================================");
@@ -212,12 +234,17 @@ void CTestPanelRefactored::UpdateDisplay(void)
 bool CTestPanelRefactored::CreateVisualPanel(void)
 {
     Print("[VISUAL] Creating refactored visual panel...");
-    
-    bool success = m_visual.CreateVisualPanel();
+      bool success = m_visual.CreateVisualPanel();
     if(success) {
         m_panel_created = true;
-        // Create the full database display
-        m_visual.CreateFullDatabaseDisplay(m_test_mode_active, m_main_db, m_test_input_db, m_test_output_db);
+        // Create the appropriate database display
+        if(m_tracking_enabled && ArraySize(m_tracked_symbols) > 0 && ArraySize(m_tracked_timeframes) > 0) {
+            // Use enhanced database display with tracking
+            m_visual.CreateFullDatabaseDisplayWithTracking(m_test_mode_active, m_main_db, m_test_input_db, m_test_output_db, m_tracked_symbols, m_tracked_timeframes);
+        } else {
+            // Use standard database display
+            m_visual.CreateFullDatabaseDisplay(m_test_mode_active, m_main_db, m_test_input_db, m_test_output_db);
+        }
     }
     
     return success;
@@ -227,11 +254,16 @@ bool CTestPanelRefactored::CreateVisualPanel(void)
 //| Update visual panel                                             |
 //+------------------------------------------------------------------+
 void CTestPanelRefactored::UpdateVisualPanel(void)
-{
-    if(!m_panel_created) return;
+{    if(!m_panel_created) return;
     
-    // Update the full database display with current data
-    m_visual.CreateFullDatabaseDisplay(m_test_mode_active, m_main_db, m_test_input_db, m_test_output_db);
+    // Update the database display with current data
+    if(m_tracking_enabled && ArraySize(m_tracked_symbols) > 0 && ArraySize(m_tracked_timeframes) > 0) {
+        // Use enhanced database display with tracking
+        m_visual.CreateFullDatabaseDisplayWithTracking(m_test_mode_active, m_main_db, m_test_input_db, m_test_output_db, m_tracked_symbols, m_tracked_timeframes);
+    } else {
+        // Use standard database display
+        m_visual.CreateFullDatabaseDisplay(m_test_mode_active, m_main_db, m_test_input_db, m_test_output_db);
+    }
     m_visual.UpdateVisualPanel();
 }
 
@@ -258,7 +290,9 @@ void CTestPanelRefactored::ForceCleanupAllSSoTObjects(void)
 //+------------------------------------------------------------------+
 string CTestPanelRefactored::GenerateReportText(void)
 {
-    return m_report_gen.GenerateReportText(m_test_mode_active, m_main_db, m_test_input_db, m_test_output_db);
+    // Use the same method as copy-to-clipboard to ensure consistency
+    // This captures exactly what's displayed on the panel
+    return m_visual.CaptureActualPanelContent();
 }
 
 //+------------------------------------------------------------------+
@@ -266,16 +300,18 @@ string CTestPanelRefactored::GenerateReportText(void)
 //+------------------------------------------------------------------+
 bool CTestPanelRefactored::CopyToClipboard(void)
 {
-    Print("[PANEL] Generating comprehensive report for clipboard...");
+    Print("[PANEL] Capturing actual panel content for clipboard...");
     
-    string report = m_report_gen.GenerateComprehensiveReport(m_test_mode_active, m_main_db, m_test_input_db, m_test_output_db);
+    // Get the actual content displayed on the panel
+    string panel_content = m_visual.CaptureActualPanelContent();
     
-    if(StringLen(report) == 0) {
-        Print("[PANEL] ERROR: Report generation failed");
+    if(StringLen(panel_content) == 0) {
+        Print("[PANEL] ERROR: Panel content capture failed");
         return false;
     }
     
-    return m_report_gen.CopyToClipboard(report);
+    // Use the visual display's clipboard functionality directly
+    return m_visual.CopyToClipboard(panel_content);
 }
 
 //+------------------------------------------------------------------+
@@ -301,13 +337,13 @@ bool CTestPanelRefactored::DeleteTestDatabases(void)
 //+------------------------------------------------------------------+
 void CTestPanelRefactored::HandleChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)
 {
-    Print("[EVENT] Chart event received - ID: ", id, ", sparam: ", sparam);
-    
-    if(id == CHARTEVENT_OBJECT_CLICK) {
-        Print("[EVENT] Object click detected: ", sparam);
-        Print("[EVENT] Looking for button: ", m_object_prefix + "CopyButton");
+    // Only process object click events with valid object names
+    if(id == CHARTEVENT_OBJECT_CLICK && StringLen(sparam) > 0) {
+        Print("[EVENT] Object click detected: '", sparam, "'");
         
-        if(sparam == m_object_prefix + "CopyButton") {
+        // Check if it's our copy button specifically
+        string copy_button_name = m_object_prefix + "CopyButton";
+        if(sparam == copy_button_name) {
             Print("[EVENT] ✅ Copy button clicked - generating report...");
             Print("[EVENT] Test mode: ", m_test_mode_active ? "TEST" : "LIVE");
             Print("[EVENT] Main DB handle: ", m_main_db);
@@ -397,4 +433,57 @@ void CTestPanelRefactored::UpdateBrokerVsDatabaseDisplay(string &symbols[], ENUM
     }
       m_visual.UpdateDataComparisonDisplay(symbols, timeframes, m_main_db);
     UpdateLastDisplayTime();
+}
+
+//+------------------------------------------------------------------+
+//| Initialize with asset and timeframe tracking                    |
+//+------------------------------------------------------------------+
+bool CTestPanelRefactored::InitializeWithTracking(bool test_mode, int main_db_handle, string &tracked_symbols[], ENUM_TIMEFRAMES &tracked_timeframes[], int test_input_handle, int test_output_handle)
+{
+    Print("[PANEL] TestPanel Refactored: Initializing with asset tracking...");
+    
+    // Store tracked assets and timeframes
+    ArrayResize(m_tracked_symbols, ArraySize(tracked_symbols));
+    ArrayResize(m_tracked_timeframes, ArraySize(tracked_timeframes));
+    
+    for(int i = 0; i < ArraySize(tracked_symbols); i++) {
+        m_tracked_symbols[i] = tracked_symbols[i];
+    }
+    
+    for(int i = 0; i < ArraySize(tracked_timeframes); i++) {
+        m_tracked_timeframes[i] = tracked_timeframes[i];
+    }
+    
+    m_tracking_enabled = true;
+    
+    // Update database with tracking information
+    if(main_db_handle != INVALID_HANDLE) {
+        if(m_db_ops.UpdateDBInfoSummary(main_db_handle, m_tracked_symbols, m_tracked_timeframes)) {
+            Print("[PANEL] ✅ Database tracking info updated successfully");
+        } else {
+            Print("[PANEL] ⚠️ Failed to update database tracking info");
+        }
+    }
+    
+    // Call standard initialization
+    bool result = Initialize(test_mode, main_db_handle, test_input_handle, test_output_handle);
+    
+    if(result) {
+        Print("[PANEL] Tracking enabled for ", ArraySize(m_tracked_symbols), " symbols and ", 
+              ArraySize(m_tracked_timeframes), " timeframes");
+        
+        // Display tracked assets summary
+        Print("[PANEL] Tracked symbols: ");
+        for(int i = 0; i < ArraySize(m_tracked_symbols); i++) {
+            Print("  - ", m_tracked_symbols[i]);
+        }
+        
+        Print("[PANEL] Tracked timeframes: ");
+        for(int i = 0; i < ArraySize(m_tracked_timeframes); i++) {
+            CDatabaseOperations db_ops;
+            Print("  - ", db_ops.TimeframeToString((int)m_tracked_timeframes[i]));
+        }
+    }
+    
+    return result;
 }
