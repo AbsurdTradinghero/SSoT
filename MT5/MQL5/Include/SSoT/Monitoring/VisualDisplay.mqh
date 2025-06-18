@@ -55,6 +55,7 @@ public:
       //--- Data Comparison Display (Live Mode Only)
     void CreateBrokerVsDatabaseComparison(string &symbols[], ENUM_TIMEFRAMES &timeframes[], int db_handle);
     void UpdateDataComparisonDisplay(string &symbols[], ENUM_TIMEFRAMES &timeframes[], int db_handle);
+    void CreateValidationStatsDisplay(string &symbols[], ENUM_TIMEFRAMES &timeframes[], int db_handle);
     
     //--- Button Creation
     void CreateCopyButton(void);
@@ -1252,4 +1253,164 @@ void CVisualDisplay::CreateEnhancedDatabaseColumn(string title, int db_handle, s
             }
         }
     }
+}
+
+//+------------------------------------------------------------------+
+//| Create validation statistics display                            |
+//+------------------------------------------------------------------+
+void CVisualDisplay::CreateValidationStatsDisplay(string &symbols[], ENUM_TIMEFRAMES &timeframes[], int db_handle)
+{
+    Print("[VISUAL] Creating validation statistics display...");
+    
+    // Clear existing validation objects
+    for(int i = ObjectsTotal(0, -1, -1) - 1; i >= 0; i--) {
+        string obj_name = ObjectName(0, i, -1, -1);
+        if(StringFind(obj_name, m_object_prefix + "Validation") == 0) {
+            ObjectDelete(0, obj_name);
+        }
+    }
+    
+    // Create validation panel header
+    string header_obj = m_object_prefix + "ValidationHeader";
+    ObjectCreate(0, header_obj, OBJ_LABEL, 0, 0, 0);
+    ObjectSetInteger(0, header_obj, OBJPROP_XDISTANCE, 40);
+    ObjectSetInteger(0, header_obj, OBJPROP_YDISTANCE, 550);  // Below the comparison table
+    ObjectSetInteger(0, header_obj, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+    ObjectSetInteger(0, header_obj, OBJPROP_FONTSIZE, 12);
+    ObjectSetInteger(0, header_obj, OBJPROP_COLOR, clrLightBlue);
+    ObjectSetString(0, header_obj, OBJPROP_FONT, "Arial Bold");
+    ObjectSetString(0, header_obj, OBJPROP_TEXT, "🔍 HASH VALIDATION & COMPLETION STATUS");
+    ObjectSetInteger(0, header_obj, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, header_obj, OBJPROP_BACK, false);
+    ObjectSetInteger(0, header_obj, OBJPROP_HIDDEN, false);
+    
+    // Create table headers for validation
+    int start_y = 570;
+    int line_height = 16;
+    
+    string val_headers[] = {"SYMBOL", "TIMEFRAME", "VALIDATED", "COMPLETED", "HASH STATUS"};
+    int val_header_x_positions[] = {40, 160, 280, 420, 560};
+    
+    for(int h = 0; h < ArraySize(val_headers); h++) {
+        string header_name = m_object_prefix + "ValidationTableHeader" + IntegerToString(h);
+        ObjectCreate(0, header_name, OBJ_LABEL, 0, 0, 0);
+        ObjectSetInteger(0, header_name, OBJPROP_XDISTANCE, val_header_x_positions[h]);
+        ObjectSetInteger(0, header_name, OBJPROP_YDISTANCE, start_y);
+        ObjectSetInteger(0, header_name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+        ObjectSetInteger(0, header_name, OBJPROP_FONTSIZE, 9);
+        ObjectSetInteger(0, header_name, OBJPROP_COLOR, clrCyan);
+        ObjectSetString(0, header_name, OBJPROP_FONT, "Arial Bold");
+        ObjectSetString(0, header_name, OBJPROP_TEXT, val_headers[h]);
+        ObjectSetInteger(0, header_name, OBJPROP_SELECTABLE, false);
+        ObjectSetInteger(0, header_name, OBJPROP_BACK, false);
+        ObjectSetInteger(0, header_name, OBJPROP_HIDDEN, false);
+    }
+    
+    int current_y = start_y + line_height + 5;
+    int row_count = 0;
+    
+    // Loop through each symbol and timeframe combination
+    for(int s = 0; s < ArraySize(symbols); s++) {
+        for(int t = 0; t < ArraySize(timeframes); t++) {
+            string symbol = symbols[s];
+            ENUM_TIMEFRAMES timeframe = timeframes[t];
+            
+            CDatabaseOperations db_ops;
+            string tf_string = db_ops.TimeframeToString((int)timeframe);
+            
+            // Get total bars for this symbol/timeframe
+            int total_bars = 0;
+            string total_sql = StringFormat("SELECT COUNT(*) FROM AllCandleData WHERE asset_symbol='%s' AND timeframe='%s'", 
+                                          symbol, tf_string);
+            int total_request = DatabasePrepare(db_handle, total_sql);
+            if(total_request != INVALID_HANDLE) {
+                if(DatabaseRead(total_request)) {
+                    long count_value;
+                    if(DatabaseColumnLong(total_request, 0, count_value)) {
+                        total_bars = (int)count_value;
+                    }
+                }
+                DatabaseFinalize(total_request);
+            }
+            
+            // Get validated bars count
+            int validated_bars = 0;
+            string val_sql = StringFormat("SELECT COUNT(*) FROM AllCandleData WHERE asset_symbol='%s' AND timeframe='%s' AND is_validated=1", 
+                                        symbol, tf_string);
+            int val_request = DatabasePrepare(db_handle, val_sql);
+            if(val_request != INVALID_HANDLE) {
+                if(DatabaseRead(val_request)) {
+                    long count_value;
+                    if(DatabaseColumnLong(val_request, 0, count_value)) {
+                        validated_bars = (int)count_value;
+                    }
+                }
+                DatabaseFinalize(val_request);
+            }
+            
+            // Get completed bars count
+            int completed_bars = 0;
+            string comp_sql = StringFormat("SELECT COUNT(*) FROM AllCandleData WHERE asset_symbol='%s' AND timeframe='%s' AND is_complete=1", 
+                                         symbol, tf_string);
+            int comp_request = DatabasePrepare(db_handle, comp_sql);
+            if(comp_request != INVALID_HANDLE) {
+                if(DatabaseRead(comp_request)) {
+                    long count_value;
+                    if(DatabaseColumnLong(comp_request, 0, count_value)) {
+                        completed_bars = (int)count_value;
+                    }
+                }
+                DatabaseFinalize(comp_request);
+            }
+            
+            // Determine hash status
+            string hash_status;
+            color hash_color;
+            
+            if(total_bars == 0) {
+                hash_status = "❌ NO DATA";
+                hash_color = clrRed;
+            } else if(validated_bars == total_bars) {
+                hash_status = "✅ ALL VALID";
+                hash_color = clrLime;
+            } else if(validated_bars > total_bars * 0.9) {
+                hash_status = "⚠️ MOSTLY VALID";
+                hash_color = clrYellow;
+            } else {
+                hash_status = "❌ INVALID";
+                hash_color = clrRed;
+            }
+            
+            // Create row data
+            string row_data[] = {
+                symbol,
+                tf_string,
+                StringFormat("%d/%d", validated_bars, total_bars),
+                StringFormat("%d/%d", completed_bars, total_bars),
+                hash_status
+            };
+            
+            color row_colors[] = {clrWhite, clrWhite, clrLightBlue, clrLightGreen, hash_color};
+            
+            for(int col = 0; col < ArraySize(row_data); col++) {
+                string row_obj = m_object_prefix + "ValidationRow" + IntegerToString(row_count) + "Col" + IntegerToString(col);
+                ObjectCreate(0, row_obj, OBJ_LABEL, 0, 0, 0);
+                ObjectSetInteger(0, row_obj, OBJPROP_XDISTANCE, val_header_x_positions[col]);
+                ObjectSetInteger(0, row_obj, OBJPROP_YDISTANCE, current_y);
+                ObjectSetInteger(0, row_obj, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+                ObjectSetInteger(0, row_obj, OBJPROP_FONTSIZE, 8);
+                ObjectSetInteger(0, row_obj, OBJPROP_COLOR, row_colors[col]);
+                ObjectSetString(0, row_obj, OBJPROP_FONT, "Arial");
+                ObjectSetString(0, row_obj, OBJPROP_TEXT, row_data[col]);
+                ObjectSetInteger(0, row_obj, OBJPROP_SELECTABLE, false);
+                ObjectSetInteger(0, row_obj, OBJPROP_BACK, false);
+                ObjectSetInteger(0, row_obj, OBJPROP_HIDDEN, false);
+            }
+            
+            current_y += line_height;
+            row_count++;
+        }
+    }
+    
+    Print("[VISUAL] Validation statistics display created with ", row_count, " rows");
 }

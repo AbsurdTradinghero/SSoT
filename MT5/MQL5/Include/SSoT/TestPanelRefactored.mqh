@@ -414,9 +414,12 @@ void CTestPanelRefactored::CreateBrokerVsDatabaseDisplay(string &symbols[], ENUM
         Print("[PANEL] Cannot create comparison - main database not connected");
         return;
     }
-    
-    Print("[PANEL] Creating Broker vs Database comparison display...");
+      Print("[PANEL] Creating Broker vs Database comparison display...");
     m_visual.CreateBrokerVsDatabaseComparison(symbols, timeframes, m_main_db);
+    
+    // Also create validation statistics display
+    Print("[PANEL] Creating hash validation and completion statistics...");
+    m_visual.CreateValidationStatsDisplay(symbols, timeframes, m_main_db);
 }
 
 //+------------------------------------------------------------------+
@@ -430,8 +433,11 @@ void CTestPanelRefactored::UpdateBrokerVsDatabaseDisplay(string &symbols[], ENUM
     
     if(m_main_db == INVALID_HANDLE) {
         return;
-    }
-      m_visual.UpdateDataComparisonDisplay(symbols, timeframes, m_main_db);
+    }    m_visual.UpdateDataComparisonDisplay(symbols, timeframes, m_main_db);
+    
+    // Also update validation statistics
+    m_visual.CreateValidationStatsDisplay(symbols, timeframes, m_main_db);
+    
     UpdateLastDisplayTime();
 }
 

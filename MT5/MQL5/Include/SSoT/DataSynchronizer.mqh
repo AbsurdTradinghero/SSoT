@@ -38,6 +38,8 @@ public:
     static int FetchHistoricalBatch(int db_handle, string symbol, ENUM_TIMEFRAMES timeframe, 
                                    datetime start_time, int batch_size = 10000);    static bool VerifyDataIntegrity(int db_handle, string symbol, ENUM_TIMEFRAMES timeframe);
     static bool VerifyFullSyncComplete(int db_handle, string &symbols[], ENUM_TIMEFRAMES &timeframes[]);
+    static int GetValidatedBarsCount(int db_handle, string symbol, ENUM_TIMEFRAMES timeframe);
+    static int GetCompleteBarsCount(int db_handle, string symbol, ENUM_TIMEFRAMES timeframe);
     
     // Utility functions
     static string TimeframeToString(ENUM_TIMEFRAMES tf);
@@ -545,4 +547,51 @@ string CDataSynchronizer::TimeframeToString(ENUM_TIMEFRAMES tf)
     }
 }
 
+//+------------------------------------------------------------------+
+//| Get validation statistics for an asset/timeframe               |
+//+------------------------------------------------------------------+
+int CDataSynchronizer::GetValidatedBarsCount(int db_handle, string symbol, ENUM_TIMEFRAMES timeframe)
+{
+    if(db_handle == INVALID_HANDLE) return 0;
+    
+    string tf_string = TimeframeToString(timeframe);
+    string sql = StringFormat("SELECT COUNT(*) FROM AllCandleData WHERE asset_symbol='%s' AND timeframe='%s' AND is_validated=1", 
+                             symbol, tf_string);
+    
+    int request = DatabasePrepare(db_handle, sql);
+    if(request == INVALID_HANDLE) return 0;
+    
+    long count = 0;
+    if(DatabaseRead(request)) {
+        DatabaseColumnLong(request, 0, count);
+    }
+    DatabaseFinalize(request);
+    
+    return (int)count;
+}
+
+//+------------------------------------------------------------------+
+//| Get completion statistics for an asset/timeframe               |
+//+------------------------------------------------------------------+
+int CDataSynchronizer::GetCompleteBarsCount(int db_handle, string symbol, ENUM_TIMEFRAMES timeframe)
+{
+    if(db_handle == INVALID_HANDLE) return 0;
+    
+    string tf_string = TimeframeToString(timeframe);
+    string sql = StringFormat("SELECT COUNT(*) FROM AllCandleData WHERE asset_symbol='%s' AND timeframe='%s' AND is_complete=1", 
+                             symbol, tf_string);
+    
+    int request = DatabasePrepare(db_handle, sql);
+    if(request == INVALID_HANDLE) return 0;
+    
+    long count = 0;
+    if(DatabaseRead(request)) {
+        DatabaseColumnLong(request, 0, count);
+    }
+    DatabaseFinalize(request);
+    
+    return (int)count;
+}
+
+//+------------------------------------------------------------------+
 #endif // SSOT_DATA_SYNCHRONIZER_MQH
