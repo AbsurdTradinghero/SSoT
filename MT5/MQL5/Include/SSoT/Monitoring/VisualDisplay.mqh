@@ -141,14 +141,14 @@ void CVisualDisplay::CreateFullDatabaseDisplay(bool test_mode, int main_db, int 
     CreateModeDisplay(test_mode);
     
     // Create system status display
-    CreateSystemStatusDisplay(test_mode, main_db);
-      // Create panel header
+    CreateSystemStatusDisplay(test_mode, main_db);    // Create panel header
     CreatePanelHeader(65);
     
     // Define column positions and headers
-    int col1_x = 5, col2_x = 420, col3_x = 800;  // Move overview columns further left
+    int col1_x = 650, col2_x = 850, col3_x = 1050;  // Move overview columns to upper right
     int start_y = 85;
-      if(test_mode) {
+    
+    if(test_mode) {
         // Test Mode: Show all three databases
         CreateDatabaseColumn("MAIN DATABASE", main_db, "sourcedb.sqlite", col1_x, start_y, clrLime);
         CreateDatabaseColumn("TEST INPUT", test_input_db, "SSoT_input.db", col2_x, start_y, clrYellow);
@@ -158,8 +158,8 @@ void CVisualDisplay::CreateFullDatabaseDisplay(bool test_mode, int main_db, int 
         CreateCopyButton();
         CreateGenerateTestDBsButton();
         CreateDeleteTestDBsButton();    } else {
-        // Live Mode: Show only main database (centered)
-        CreateDatabaseColumn("LIVE DATABASE", main_db, "sourcedb.sqlite", col2_x, start_y, clrLime);
+        // Live Mode: Show only main database (upper right)
+        CreateDatabaseColumn("LIVE DATABASE", main_db, "sourcedb.sqlite", col1_x, start_y, clrLime);
         
         // Create visual separator for live mode
         string separator_obj = m_object_prefix + "Separator";
@@ -360,10 +360,9 @@ void CVisualDisplay::CreateCopyButton(void)
     string button_name = m_object_prefix + "CopyButton";
     
     if(ObjectFind(0, button_name) < 0)
-        ObjectCreate(0, button_name, OBJ_BUTTON, 0, 0, 0);
-      // Position copy button prominently for live mode
+        ObjectCreate(0, button_name, OBJ_BUTTON, 0, 0, 0);    // Position copy button prominently for live mode
     ObjectSetInteger(0, button_name, OBJPROP_XDISTANCE, 50);
-    ObjectSetInteger(0, button_name, OBJPROP_YDISTANCE, 590);  // Moved down for better spacing
+    ObjectSetInteger(0, button_name, OBJPROP_YDISTANCE, 680);  // Bottom area, well below all content
     ObjectSetInteger(0, button_name, OBJPROP_XSIZE, 180);      // Made wider for better visibility
     ObjectSetInteger(0, button_name, OBJPROP_YSIZE, 35);       // Made taller for better visibility
     ObjectSetInteger(0, button_name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
@@ -598,8 +597,8 @@ void CVisualDisplay::CreateBrokerVsDatabaseComparison(string &symbols[], ENUM_TI
     }    // Create comparison panel header
     string header_obj = m_object_prefix + "ComparisonHeader";
     ObjectCreate(0, header_obj, OBJ_LABEL, 0, 0, 0);
-    ObjectSetInteger(0, header_obj, OBJPROP_XDISTANCE, 20);   // Move to left side to avoid overlap
-    ObjectSetInteger(0, header_obj, OBJPROP_YDISTANCE, 350);  // Move down to avoid overlap with overview
+    ObjectSetInteger(0, header_obj, OBJPROP_XDISTANCE, 20);   // Health monitor - up left
+    ObjectSetInteger(0, header_obj, OBJPROP_YDISTANCE, 120);  // Up position, below main header
     ObjectSetInteger(0, header_obj, OBJPROP_CORNER, CORNER_LEFT_UPPER);
     ObjectSetInteger(0, header_obj, OBJPROP_FONTSIZE, 12);
     ObjectSetInteger(0, header_obj, OBJPROP_COLOR, clrYellow);
@@ -610,11 +609,11 @@ void CVisualDisplay::CreateBrokerVsDatabaseComparison(string &symbols[], ENUM_TI
     ObjectSetInteger(0, header_obj, OBJPROP_HIDDEN, false);
     
     // Create table headers
-    int start_y = 370;  // Move down to avoid overlap
+    int start_y = 140;  // Up position for health monitor
     int line_height = 16;
     int col_width = 120;
     
-    // Table headers - left side to avoid overlap
+    // Table headers - left side for health monitor
     string headers[] = {"SYMBOL", "TIMEFRAME", "BROKER BARS", "DATABASE BARS", "DIFFERENCE", "STATUS"};
     int header_x_positions[] = {20, 100, 200, 300, 400, 500};
     
@@ -1106,11 +1105,11 @@ void CVisualDisplay::CreateFullDatabaseDisplayWithTracking(bool test_mode, int m
     
     // Create system status display
     CreateSystemStatusDisplay(test_mode, main_db);
-    
-    // Create panel header    CreatePanelHeader(65);
+      // Create panel header
+    CreatePanelHeader(65);
     
     // Define column positions and headers
-    int col1_x = 5, col2_x = 420, col3_x = 800;  // Move overview columns further left
+    int col1_x = 650, col2_x = 850, col3_x = 1050;  // Move overview columns to upper right
     int start_y = 85;
     
     if(test_mode) {
@@ -1124,8 +1123,8 @@ void CVisualDisplay::CreateFullDatabaseDisplayWithTracking(bool test_mode, int m
         CreateGenerateTestDBsButton();
         CreateDeleteTestDBsButton();
     } else {
-        // Live Mode: Show enhanced main database (centered)
-        CreateEnhancedDatabaseColumn("LIVE DATABASE", main_db, "sourcedb.sqlite", col2_x, start_y, clrLime, tracked_symbols, tracked_timeframes);
+        // Live Mode: Show enhanced main database (upper right)
+        CreateEnhancedDatabaseColumn("LIVE DATABASE", main_db, "sourcedb.sqlite", col1_x, start_y, clrLime, tracked_symbols, tracked_timeframes);
         
         // Create visual separator for live mode
         string separator_obj = m_object_prefix + "Separator";
@@ -1249,7 +1248,7 @@ void CVisualDisplay::CreateValidationStatsDisplay(string &symbols[], ENUM_TIMEFR
     string header_obj = m_object_prefix + "ValidationHeader";
     ObjectCreate(0, header_obj, OBJ_LABEL, 0, 0, 0);
     ObjectSetInteger(0, header_obj, OBJPROP_XDISTANCE, 20);   // Align with broker comparison (left side)
-    ObjectSetInteger(0, header_obj, OBJPROP_YDISTANCE, 520);  // Well below broker comparison
+    ObjectSetInteger(0, header_obj, OBJPROP_YDISTANCE, 350);  // Well below broker comparison
     ObjectSetInteger(0, header_obj, OBJPROP_CORNER, CORNER_LEFT_UPPER);
     ObjectSetInteger(0, header_obj, OBJPROP_FONTSIZE, 12);
     ObjectSetInteger(0, header_obj, OBJPROP_COLOR, clrLightBlue);
@@ -1260,7 +1259,7 @@ void CVisualDisplay::CreateValidationStatsDisplay(string &symbols[], ENUM_TIMEFR
     ObjectSetInteger(0, header_obj, OBJPROP_HIDDEN, false);
     
     // Create table headers for validation
-    int start_y = 540;  // Well below broker comparison
+    int start_y = 370;  // Well below broker comparison
     int line_height = 16;
     
     string val_headers[] = {"SYMBOL", "TIMEFRAME", "VALIDATED", "COMPLETED", "HASH STATUS"};
