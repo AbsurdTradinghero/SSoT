@@ -10,6 +10,7 @@
 //--- Include Files
 #include <SSoT/TestPanelRefactored.mqh>  // Refactored modular test panel
 #include <SSoT/DataFetcher.mqh>       // Data fetching functionality
+#include <SSoT/DataSynchronizer.mqh>  // Intelligent data synchronization
 #include <SSoT/DatabaseSetup.mqh>     // Add this include for unified DB setup
 #include <SSoT/SelfHealing/SimpleSSoTSelfHealingIntegration.mqh>  // Simple self-healing system
 
@@ -45,6 +46,7 @@ int             g_test_output_db = INVALID_HANDLE;              // Test output d
 string          g_symbols[];                                    // Parsed symbols array
 ENUM_TIMEFRAMES g_timeframes[];                                 // Parsed timeframes array
 bool            g_test_mode_active = false;                     // Test mode flag
+bool            g_initial_sync_completed = false;              // Initial sync completion flag
 datetime        g_last_validation = 0;                         // Last validation time
 datetime        g_last_test_flow = 0;                          // Last test flow execution
 
@@ -205,40 +207,86 @@ int OnInit()
     if(!CDataFetcher::Initialize())
     {
         Print("⚠️ Warning: Data fetcher initialization failed");
-    }
-
-    // Perform initial data population if main database is writable
+    }    // Perform initial data synchronization if main database is writable
     if(g_main_db != INVALID_HANDLE)
     {
-        Print("📈 Performing initial data population...");
+        Print("📈 Performing intelligent initial data synchronization...");
+        Print("⏳ Health monitoring disabled until initial sync completes...");
         
-        for(int i = 0; i < ArraySize(g_symbols); i++)
+        bool all_synced = true;
+        
+        // Initialize the synchronizer with our symbols and timeframes
+        if(!CDataSynchronizer::InitializeSync(g_main_db, g_symbols, g_timeframes))
         {
-            for(int j = 0; j < ArraySize(g_timeframes); j++)
+            Print("❌ Failed to initialize data synchronizer");
+            all_synced = false;
+        }
+        else
+        {
+            // Perform full sync for each symbol/timeframe combination
+            for(int i = 0; i < ArraySize(g_symbols); i++)
             {
-                string symbol = g_symbols[i];
-                ENUM_TIMEFRAMES tf = g_timeframes[j];
-                
-                // Initial fetch of historical data
-                int fetched_count = CDataFetcher::FetchData(symbol, tf, MaxBarsToFetch);
-                if(fetched_count > 0)
+                for(int j = 0; j < ArraySize(g_timeframes); j++)
                 {
-                    Print("✅ Initial fetch: ", fetched_count, " bars for ", symbol, " ", CDataFetcher::TimeframeToString(tf));
+                    string symbol = g_symbols[i];
+                    ENUM_TIMEFRAMES tf = g_timeframes[j];
                     
-                    // Store to database
-                    if(!CDataFetcher::FetchDataToDatabase(g_main_db, symbol, tf, MaxBarsToFetch))
+                    Print("🔄 Performing full sync for ", symbol, " ", CDataSynchronizer::TimeframeToString(tf), "...");
+                    
+                    if(!CDataSynchronizer::PerformFullSync(g_main_db, symbol, tf))
                     {
-                        Print("⚠️ Warning: Failed to store initial data for ", symbol, " ", CDataFetcher::TimeframeToString(tf));
+                        Print("❌ Critical: Full sync failed for ", symbol, " ", CDataSynchronizer::TimeframeToString(tf));
+                        all_synced = false;
+                    }
+                    else
+                    {
+                        // Verify sync quality
+                        int broker_bars = CDataSynchronizer::GetBrokerAvailableBars(symbol, tf);
+                        int db_bars = CDataSynchronizer::GetDatabaseStoredBars(g_main_db, symbol, tf);
+                        int missing = broker_bars - db_bars;
+                        
+                        if(missing > 5) { // Allow small tolerance
+                            Print("⚠️ Warning: Significant gaps remain for ", symbol, " ", CDataSynchronizer::TimeframeToString(tf), 
+                                  " (", missing, " bars missing)");
+                            all_synced = false;
+                            
+                            // Try gap filling
+                            Print("🔧 Attempting gap filling for ", symbol, " ", CDataSynchronizer::TimeframeToString(tf), "...");
+                            CDataSynchronizer::DetectAndFillGaps(g_main_db, symbol, tf);
+                        }
+                        
+                        // Final verification
+                        db_bars = CDataSynchronizer::GetDatabaseStoredBars(g_main_db, symbol, tf);
+                        missing = broker_bars - db_bars;
+                        Print("📊 Final sync status: ", symbol, " ", CDataSynchronizer::TimeframeToString(tf), 
+                              " - Broker: ", broker_bars, " bars, Database: ", db_bars, " bars, Missing: ", missing);
                     }
                 }
             }
+        }          // Comprehensive verification that all assets are properly synchronized
+        g_initial_sync_completed = CDataSynchronizer::VerifyFullSyncComplete(g_main_db, g_symbols, g_timeframes);
+        
+        // Only start monitoring if initial sync was successful
+        if(g_initial_sync_completed) {
+            Print("✅ All assets fully synchronized - Starting health monitoring");
+            Print("🚀 Health monitoring and incremental sync are now active");
+            EventSetTimer(1);
+        } else {
+            Print("❌ Initial synchronization incomplete - health monitoring disabled");
+            Print("🔧 Some assets still have missing bars - manual intervention may be required");
+            Print("💡 Try restarting the EA or check broker connection");
+            g_initial_sync_completed = false;
+            // Still start timer but with limited functionality
+            EventSetTimer(1);
         }
         
-        Print("📊 Initial data population completed");
+        Print("📊 Initial data synchronization process completed");
     }
-
-    // Start monitoring
-    EventSetTimer(1);
+    else 
+    {
+        // No database available, start timer anyway
+        EventSetTimer(1);
+    }
     Print("✅ SSoT EA v4.10 initialized successfully");
     Print(StringFormat("📊 Monitoring: %d symbols, %d timeframes", 
           ArraySize(g_symbols), ArraySize(g_timeframes)));
@@ -330,21 +378,20 @@ void OnTick()
 void OnTimer()
 {
     datetime current_time = TimeCurrent();
-    
-    // Simple self-healing system check
-    if(g_self_healing != NULL) {
+      // Simple self-healing system check (only if initial sync completed)
+    if(g_self_healing != NULL && g_initial_sync_completed) {
         g_self_healing.OnTimerCheck();
     }
     
-    // Data validation and fetching logic
-    if(current_time - g_last_validation > ValidationInterval)
+    // Data validation and incremental synchronization logic (only if initial sync completed)
+    if(g_initial_sync_completed && current_time - g_last_validation > ValidationInterval)
     {
         g_last_validation = current_time;
         
-        // Fetch fresh data for configured symbols and timeframes
+        // Perform incremental sync for configured symbols and timeframes
         if(g_main_db != INVALID_HANDLE)
         {
-            Print("📈 Fetching fresh market data...");
+            Print("📈 Performing incremental data synchronization...");
             
             for(int i = 0; i < ArraySize(g_symbols); i++)
             {
@@ -353,19 +400,24 @@ void OnTimer()
                     string symbol = g_symbols[i];
                     ENUM_TIMEFRAMES tf = g_timeframes[j];
                     
-                    // Fetch data to main database
-                    if(!CDataFetcher::FetchDataToDatabase(g_main_db, symbol, tf, MaxBarsToFetch))
+                    // Perform incremental sync to get only new data
+                    if(!CDataSynchronizer::PerformIncrementalSync(g_main_db, symbol, tf))
                     {
-                        Print("⚠️ Warning: Failed to fetch data for ", symbol, " ", CDataFetcher::TimeframeToString(tf));
+                        Print("⚠️ Warning: Incremental sync failed for ", symbol, " ", CDataSynchronizer::TimeframeToString(tf));
                     }
                     else
                     {
-                        Print("✅ Fetched data for ", symbol, " ", CDataFetcher::TimeframeToString(tf));
+                        // Check for any gaps that might have appeared
+                        if(CDataSynchronizer::HasGaps(g_main_db, symbol, tf))
+                        {
+                            Print("🔧 Gap detected, filling for ", symbol, " ", CDataSynchronizer::TimeframeToString(tf));
+                            CDataSynchronizer::DetectAndFillGaps(g_main_db, symbol, tf);
+                        }
                     }
                 }
             }
             
-            Print("📊 Data fetch cycle completed");
+            Print("📊 Incremental sync cycle completed");
         }
     }
     
@@ -388,11 +440,15 @@ void OnTimer()
             }
         }
     }
-    
-    // Display update logic
-    static datetime last_display = 0;    if(current_time - last_display > 30) 
+      // Display update logic
+    static datetime last_display = 0;
+    if(current_time - last_display > 30) 
     {
-        Print("📊 SSoT Monitor - Mode: ", g_test_mode_active ? "TEST" : "LIVE");
+        if(g_initial_sync_completed) {
+            Print("📊 SSoT Monitor - Mode: ", g_test_mode_active ? "TEST" : "LIVE", " [SYNC: ✅]");
+        } else {
+            Print("⚠️ SSoT Monitor - Mode: ", g_test_mode_active ? "TEST" : "LIVE", " [SYNC: ❌ INCOMPLETE]");
+        }
         
         // Display self-healing status (TODO: Re-enable when classes are fixed)
         /*
