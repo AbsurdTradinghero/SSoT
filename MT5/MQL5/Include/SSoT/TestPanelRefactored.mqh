@@ -66,14 +66,17 @@ public:
     bool CopyToClipboard(void);
     bool CopyPanelContent(string &symbols[], ENUM_TIMEFRAMES &timeframes[]); // Copy actual panel content
     string GenerateReportText(void);
-    
-    //--- Test Database Functions
+      //--- Test Database Functions
     bool GenerateTestDatabases(void);
-    bool DeleteTestDatabases(void);    //--- Event Handling
+    bool DeleteTestDatabases(void);
+
+    //--- Event Handling
     void HandleChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam);
-      //--- Data Comparison Display (Live Mode Only)
+    
+    //--- Data Comparison Display (Live Mode Only)
     void CreateBrokerVsDatabaseDisplay(string &symbols[], ENUM_TIMEFRAMES &timeframes[]);
     void UpdateBrokerVsDatabaseDisplay(string &symbols[], ENUM_TIMEFRAMES &timeframes[]);
+    void UpdateRunningTime(void);  // Add running time update method
     
 private:
     //--- Helper Methods
@@ -398,6 +401,14 @@ void CTestPanelRefactored::PrintDatabaseStatus(void)
 //+------------------------------------------------------------------+
 void CTestPanelRefactored::UpdateLastDisplayTime(void)
 {    m_last_display_update = TimeCurrent();
+}
+
+//+------------------------------------------------------------------+
+//| Update running time display (every second)                      |
+//+------------------------------------------------------------------+
+void CTestPanelRefactored::UpdateRunningTime(void)
+{
+    m_visual.UpdateRunningTimeDisplay();
 }
 
 //+------------------------------------------------------------------+

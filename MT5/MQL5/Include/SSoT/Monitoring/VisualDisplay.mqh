@@ -56,6 +56,7 @@ public:
     void CreateBrokerVsDatabaseComparison(string &symbols[], ENUM_TIMEFRAMES &timeframes[], int db_handle);
     void UpdateDataComparisonDisplay(string &symbols[], ENUM_TIMEFRAMES &timeframes[], int db_handle);
     void CreateValidationStatsDisplay(string &symbols[], ENUM_TIMEFRAMES &timeframes[], int db_handle);
+    void UpdateRunningTimeDisplay(void);  // Add running time display that updates every second
     
     //--- Button Creation
     void CreateCopyButton(void);
@@ -142,12 +143,11 @@ void CVisualDisplay::CreateFullDatabaseDisplay(bool test_mode, int main_db, int 
     
     // Create system status display
     CreateSystemStatusDisplay(test_mode, main_db);
-    
-    // Create panel header
+      // Create panel header
     CreatePanelHeader(65);
     
     // Define column positions and headers
-    int col1_x = 40, col2_x = 420, col3_x = 800;
+    int col1_x = 5, col2_x = 420, col3_x = 800;  // Move overview columns further left
     int start_y = 85;
       if(test_mode) {
         // Test Mode: Show all three databases
@@ -540,11 +540,10 @@ void CVisualDisplay::CreateDatabaseInfoDisplay(bool test_mode, int main_db, int 
         string name = (i==0?"sourcedb.sqlite":(i==1?"SSoT_input.db":"SSoT_output.db"));
         string info = db_ops.GetDatabaseInfo(db, name);
         string obj = m_object_prefix + "DBInfo" + IntegerToString(i+1);
-        
-        if(ObjectFind(0, obj)<0)
+          if(ObjectFind(0, obj)<0)
             ObjectCreate(0, obj, OBJ_LABEL, 0, 0, 0);
         
-        ObjectSetInteger(0, obj, OBJPROP_XDISTANCE, 20);
+        ObjectSetInteger(0, obj, OBJPROP_XDISTANCE, 5);  // Move overview further left
         ObjectSetInteger(0, obj, OBJPROP_YDISTANCE, y + i*60);
         ObjectSetInteger(0, obj, OBJPROP_CORNER, CORNER_LEFT_UPPER);
         ObjectSetInteger(0, obj, OBJPROP_FONTSIZE, 8);
@@ -570,11 +569,10 @@ void CVisualDisplay::CreateCandleCountDisplay(bool test_mode, int main_db, int t
         string name = (i==0?"sourcedb.sqlite":(i==1?"SSoT_input.db":"SSoT_output.db"));
         string counts = db_ops.GetCandleDataInfo(db, name);
         string obj = m_object_prefix + "DBCandles" + IntegerToString(i+1);
-        
-        if(ObjectFind(0, obj)<0)
+          if(ObjectFind(0, obj)<0)
             ObjectCreate(0, obj, OBJ_LABEL, 0, 0, 0);
         
-        ObjectSetInteger(0, obj, OBJPROP_XDISTANCE, 20);
+        ObjectSetInteger(0, obj, OBJPROP_XDISTANCE, 5);  // Move overview further left
         ObjectSetInteger(0, obj, OBJPROP_YDISTANCE, y + i*60 + 20);
         ObjectSetInteger(0, obj, OBJPROP_CORNER, CORNER_LEFT_UPPER);
         ObjectSetInteger(0, obj, OBJPROP_FONTSIZE, 8);
@@ -647,59 +645,21 @@ void CVisualDisplay::CreateBrokerVsDatabaseComparison(string &symbols[], ENUM_TI
             // Use proper timeframe conversion: PERIOD_M1 -> M1, etc.
             CDatabaseOperations db_ops;
             string tf_string = db_ops.TimeframeToString((int)timeframe);
-            
-            // Get broker data count
+              // Get broker data count
             int broker_bars = iBars(symbol, timeframe);
-            
-            // DEBUG: Show what we're searching for
-            Print("[DEBUG] Searching for Symbol: '", symbol, "', Timeframe: '", tf_string, "' (converted from ", (int)timeframe, ")");
-            
-            // DEBUG: First, let's see what timeframe values actually exist in the database
-            string debug_sql = "SELECT DISTINCT timeframe FROM AllCandleData LIMIT 10";
-            int debug_request = DatabasePrepare(db_handle, debug_sql);
-            if(debug_request != INVALID_HANDLE) {
-                Print("[DEBUG] Timeframes actually in database:");
-                while(DatabaseRead(debug_request)) {
-                    string actual_tf = "";
-                    if(DatabaseColumnText(debug_request, 0, actual_tf)) {
-                        Print("[DEBUG]   - '", actual_tf, "'");
-                    }
-                }
-                DatabaseFinalize(debug_request);
-            }
-            
-            // DEBUG: Also check what symbols exist
-            string symbol_sql = "SELECT DISTINCT asset_symbol FROM AllCandleData LIMIT 10";
-            int symbol_request = DatabasePrepare(db_handle, symbol_sql);
-            if(symbol_request != INVALID_HANDLE) {
-                Print("[DEBUG] Symbols actually in database:");
-                while(DatabaseRead(symbol_request)) {
-                    string actual_symbol = "";
-                    if(DatabaseColumnText(symbol_request, 0, actual_symbol)) {
-                        Print("[DEBUG]   - '", actual_symbol, "'");
-                    }
-                }
-                DatabaseFinalize(symbol_request);
-            }
             
             // Get database data count
             int db_bars = 0;
             string sql = StringFormat("SELECT COUNT(*) FROM AllCandleData WHERE asset_symbol='%s' AND timeframe='%s'", 
                                     symbol, tf_string);
-            Print("[DEBUG] Executing query: ", sql);
             int request = DatabasePrepare(db_handle, sql);            if(request != INVALID_HANDLE) {
                 if(DatabaseRead(request)) {
                     long count_value;
                     if(DatabaseColumnLong(request, 0, count_value)) {
                         db_bars = (int)count_value;
-                        Print("[DEBUG] Query result: ", db_bars, " rows found");
                     }
-                } else {
-                    Print("[DEBUG] DatabaseRead failed for query: ", sql);
                 }
                 DatabaseFinalize(request);
-            } else {
-                Print("[DEBUG] DatabasePrepare failed for query: ", sql, ", Error: ", GetLastError());
             }
             
             // Calculate difference and status
@@ -1129,11 +1089,10 @@ void CVisualDisplay::CreateFullDatabaseDisplayWithTracking(bool test_mode, int m
     // Create system status display
     CreateSystemStatusDisplay(test_mode, main_db);
     
-    // Create panel header
-    CreatePanelHeader(65);
+    // Create panel header    CreatePanelHeader(65);
     
     // Define column positions and headers
-    int col1_x = 40, col2_x = 420, col3_x = 800;
+    int col1_x = 5, col2_x = 420, col3_x = 800;  // Move overview columns further left
     int start_y = 85;
     
     if(test_mode) {
@@ -1412,4 +1371,32 @@ void CVisualDisplay::CreateValidationStatsDisplay(string &symbols[], ENUM_TIMEFR
     }
     
     Print("[VISUAL] Validation statistics display created with ", row_count, " rows");
+}
+
+//+------------------------------------------------------------------+
+//| Update running time display (called every second)              |
+//+------------------------------------------------------------------+
+void CVisualDisplay::UpdateRunningTimeDisplay(void)
+{
+    // Create/update running time display in the header area
+    string time_obj = m_object_prefix + "RunningTime";
+    
+    if(ObjectFind(0, time_obj) < 0) {
+        ObjectCreate(0, time_obj, OBJ_LABEL, 0, 0, 0);
+        ObjectSetInteger(0, time_obj, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+        ObjectSetInteger(0, time_obj, OBJPROP_FONTSIZE, 10);
+        ObjectSetInteger(0, time_obj, OBJPROP_COLOR, clrYellow);
+        ObjectSetString(0, time_obj, OBJPROP_FONT, "Arial Bold");
+        ObjectSetInteger(0, time_obj, OBJPROP_SELECTABLE, false);
+        ObjectSetInteger(0, time_obj, OBJPROP_BACK, false);
+        ObjectSetInteger(0, time_obj, OBJPROP_HIDDEN, false);
+    }
+    
+    // Position it in the top-right area of the panel
+    ObjectSetInteger(0, time_obj, OBJPROP_XDISTANCE, 700);
+    ObjectSetInteger(0, time_obj, OBJPROP_YDISTANCE, 25);
+    
+    // Update with current time
+    string current_time = TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS);
+    ObjectSetString(0, time_obj, OBJPROP_TEXT, "🕐 " + current_time);
 }

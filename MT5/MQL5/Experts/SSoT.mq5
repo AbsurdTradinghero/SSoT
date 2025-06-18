@@ -49,6 +49,7 @@ bool            g_test_mode_active = false;                     // Test mode fla
 bool            g_initial_sync_completed = false;              // Initial sync completion flag
 datetime        g_last_validation = 0;                         // Last validation time
 datetime        g_last_test_flow = 0;                          // Last test flow execution
+datetime        g_last_bar_times[];                            // Track last bar times for new bar detection
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -165,7 +166,12 @@ int OnInit()
         delete g_test_panel;
         g_test_panel = NULL;
         return INIT_FAILED;
-    }// Show the visual test panel immediately
+    }
+    
+    // Initialize new bar detection for primary symbol/timeframe
+    ArrayResize(g_last_bar_times, ArraySize(g_symbols) * ArraySize(g_timeframes));
+    ArrayInitialize(g_last_bar_times, 0);
+    Print("📊 Initialized new bar detection for ", ArraySize(g_last_bar_times), " symbol/timeframe combinations");// Show the visual test panel immediately
     g_test_panel.CreateVisualPanel();
     g_test_panel.UpdateVisualPanel();    ChartRedraw();
     
@@ -296,6 +302,35 @@ int OnInit()
 }
 
 //+------------------------------------------------------------------+
+//| Check if any new bars have closed                               |
+//+------------------------------------------------------------------+
+bool CheckForNewBars()
+{
+    bool new_bar_detected = false;
+    
+    for(int i = 0; i < ArraySize(g_symbols); i++)
+    {
+        for(int j = 0; j < ArraySize(g_timeframes); j++)
+        {
+            string symbol = g_symbols[i];
+            ENUM_TIMEFRAMES tf = g_timeframes[j];
+            int index = i * ArraySize(g_timeframes) + j;
+            
+            datetime current_bar_time = iTime(symbol, tf, 0);
+            
+            if(current_bar_time != g_last_bar_times[index])
+            {
+                g_last_bar_times[index] = current_bar_time;
+                new_bar_detected = true;
+                Print("📊 New bar detected: ", symbol, " ", CDataSynchronizer::TimeframeToString(tf), " at ", TimeToString(current_bar_time));
+            }
+        }
+    }
+    
+    return new_bar_detected;
+}
+
+//+------------------------------------------------------------------+
 //| Expert deinitialization function                                |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
@@ -378,7 +413,16 @@ void OnTick()
 void OnTimer()
 {
     datetime current_time = TimeCurrent();
-      // Simple self-healing system check (only if initial sync completed)
+    
+    // Always update running time display every second (lightweight)
+    if(g_test_panel != NULL) {
+        g_test_panel.UpdateRunningTime();
+    }
+    
+    // Check for new bars to trigger main panel updates
+    bool new_bar_closed = CheckForNewBars();
+    
+    // Simple self-healing system check (only if initial sync completed)
     if(g_self_healing != NULL && g_initial_sync_completed) {
         g_self_healing.OnTimerCheck();
     }
@@ -439,19 +483,31 @@ void OnTimer()
                 Print("✅ Test mode flow processed successfully");
             }
         }
-    }    // Fast panel update logic (every second for health monitor)
-    static datetime last_panel_update = 0;
-    if(g_initial_sync_completed && current_time - last_panel_update > 1) 
+    }
+    
+    // Main panel update logic - only on new bar close or forced update interval
+    static datetime last_forced_update = 0;
+    bool force_update = (current_time - last_forced_update > 300); // Force update every 5 minutes as fallback
+    
+    if(g_initial_sync_completed && (new_bar_closed || force_update)) 
     {
-        last_panel_update = current_time;
+        if(force_update) {
+            last_forced_update = current_time;
+            Print("🔄 Forcing panel update (5-minute fallback)");
+        }
         
         // Update the broker vs database comparison and validation display
         if(g_test_panel != NULL && !g_test_mode_active) {
             g_test_panel.UpdateBrokerVsDatabaseDisplay(g_symbols, g_timeframes);
         }
+        
+        // Update visual panel
+        if(g_test_panel != NULL) {
+            g_test_panel.UpdateVisualPanel();
+        }
     }
     
-    // Display update logic
+    // Periodic status display (every 30 seconds)
     static datetime last_display = 0;
     if(current_time - last_display > 30)
     {
@@ -461,20 +517,9 @@ void OnTimer()
             Print("⚠️ SSoT Monitor - Mode: ", g_test_mode_active ? "TEST" : "LIVE", " [SYNC: ❌ INCOMPLETE]");
         }
         
-        // Display self-healing status (TODO: Re-enable when classes are fixed)
-        /*
-        if(g_self_healing != NULL) {
-            Print("🔧 ", g_self_healing.GetHealthSummary());
-        }
-        */
-          // Use test panel to display info
+        // Use test panel to display info
         if(g_test_panel != NULL) {
             g_test_panel.DisplayDatabaseOverview();
-            
-            // Update broker vs database comparison in live mode
-            if(!g_test_mode_active) {
-                g_test_panel.UpdateBrokerVsDatabaseDisplay(g_symbols, g_timeframes);
-            }
         }
         
         last_display = current_time;
