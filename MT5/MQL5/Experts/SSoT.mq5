@@ -28,7 +28,7 @@ input string    TestOutputDB = "SSoT_output.db";               // Test mode: Enh
 input group "=== Processing Settings ==="
 input int       MaxBarsToFetch = 1000;                         // Historical bars on startup
 input bool      EnableLogging = true;                          // Enable detailed logging
-input int       ValidationInterval = 300;                      // Validation interval (seconds)
+input int       ValidationInterval = 1;                        // Validation interval (seconds) - Fast updates
 input int       TestFlowInterval = 3600;                       // Test mode flow interval (seconds)
 
 input group "=== Self-Healing Settings ==="
@@ -439,10 +439,21 @@ void OnTimer()
                 Print("✅ Test mode flow processed successfully");
             }
         }
+    }    // Fast panel update logic (every second for health monitor)
+    static datetime last_panel_update = 0;
+    if(g_initial_sync_completed && current_time - last_panel_update > 1) 
+    {
+        last_panel_update = current_time;
+        
+        // Update the broker vs database comparison and validation display
+        if(g_test_panel != NULL && !g_test_mode_active) {
+            g_test_panel.UpdateBrokerVsDatabaseDisplay(g_symbols, g_timeframes);
+        }
     }
-      // Display update logic
+    
+    // Display update logic
     static datetime last_display = 0;
-    if(current_time - last_display > 30) 
+    if(current_time - last_display > 30)
     {
         if(g_initial_sync_completed) {
             Print("📊 SSoT Monitor - Mode: ", g_test_mode_active ? "TEST" : "LIVE", " [SYNC: ✅]");

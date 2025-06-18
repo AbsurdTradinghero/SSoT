@@ -601,8 +601,8 @@ void CVisualDisplay::CreateBrokerVsDatabaseComparison(string &symbols[], ENUM_TI
     }    // Create comparison panel header
     string header_obj = m_object_prefix + "ComparisonHeader";
     ObjectCreate(0, header_obj, OBJ_LABEL, 0, 0, 0);
-    ObjectSetInteger(0, header_obj, OBJPROP_XDISTANCE, 40);
-    ObjectSetInteger(0, header_obj, OBJPROP_YDISTANCE, 350);  // Moved up for better spacing
+    ObjectSetInteger(0, header_obj, OBJPROP_XDISTANCE, 500);  // Move to right side
+    ObjectSetInteger(0, header_obj, OBJPROP_YDISTANCE, 120);  // Move up below header
     ObjectSetInteger(0, header_obj, OBJPROP_CORNER, CORNER_LEFT_UPPER);
     ObjectSetInteger(0, header_obj, OBJPROP_FONTSIZE, 12);
     ObjectSetInteger(0, header_obj, OBJPROP_COLOR, clrYellow);
@@ -613,13 +613,13 @@ void CVisualDisplay::CreateBrokerVsDatabaseComparison(string &symbols[], ENUM_TI
     ObjectSetInteger(0, header_obj, OBJPROP_HIDDEN, false);
     
     // Create table headers
-    int start_y = 370;  // Adjusted to match header movement
+    int start_y = 140;  // Move up below the header
     int line_height = 16;
     int col_width = 120;
     
-    // Table headers
+    // Table headers - move to right side
     string headers[] = {"SYMBOL", "TIMEFRAME", "BROKER BARS", "DATABASE BARS", "DIFFERENCE", "STATUS"};
-    int header_x_positions[] = {40, 160, 280, 420, 560, 700};
+    int header_x_positions[] = {500, 580, 680, 780, 880, 980};
     
     for(int h = 0; h < ArraySize(headers); h++) {
         string header_name = m_object_prefix + "ComparisonTableHeader" + IntegerToString(h);
@@ -1269,12 +1269,11 @@ void CVisualDisplay::CreateValidationStatsDisplay(string &symbols[], ENUM_TIMEFR
             ObjectDelete(0, obj_name);
         }
     }
-    
-    // Create validation panel header
+      // Create validation panel header
     string header_obj = m_object_prefix + "ValidationHeader";
     ObjectCreate(0, header_obj, OBJ_LABEL, 0, 0, 0);
-    ObjectSetInteger(0, header_obj, OBJPROP_XDISTANCE, 40);
-    ObjectSetInteger(0, header_obj, OBJPROP_YDISTANCE, 550);  // Below the comparison table
+    ObjectSetInteger(0, header_obj, OBJPROP_XDISTANCE, 500);  // Align with broker comparison
+    ObjectSetInteger(0, header_obj, OBJPROP_YDISTANCE, 280);  // Below broker comparison
     ObjectSetInteger(0, header_obj, OBJPROP_CORNER, CORNER_LEFT_UPPER);
     ObjectSetInteger(0, header_obj, OBJPROP_FONTSIZE, 12);
     ObjectSetInteger(0, header_obj, OBJPROP_COLOR, clrLightBlue);
@@ -1285,11 +1284,11 @@ void CVisualDisplay::CreateValidationStatsDisplay(string &symbols[], ENUM_TIMEFR
     ObjectSetInteger(0, header_obj, OBJPROP_HIDDEN, false);
     
     // Create table headers for validation
-    int start_y = 570;
+    int start_y = 300;  // Below broker comparison
     int line_height = 16;
     
     string val_headers[] = {"SYMBOL", "TIMEFRAME", "VALIDATED", "COMPLETED", "HASH STATUS"};
-    int val_header_x_positions[] = {40, 160, 280, 420, 560};
+    int val_header_x_positions[] = {500, 580, 680, 780, 880};  // Align with broker comparison
     
     for(int h = 0; h < ArraySize(val_headers); h++) {
         string header_name = m_object_prefix + "ValidationTableHeader" + IntegerToString(h);
