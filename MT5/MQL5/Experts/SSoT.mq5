@@ -362,14 +362,18 @@ void OnDeinit(const int reason)
         g_self_healing = NULL;
         Print("🔧 Simple self-healing system cleaned up");
     }
-    
-    // Force additional cleanup - remove any lingering SSoT objects
+      // Force additional cleanup - remove any lingering SSoT objects with multiple patterns
     Print("🧹 Performing final chart object cleanup...");
-    for(int i = ObjectsTotal(0, -1, -1) - 1; i >= 0; i--) {
-        string obj_name = ObjectName(0, i, -1, -1);
-        if(StringFind(obj_name, "SSoT_") == 0) {
-            Print("[CLEANUP] Removing final residual object: ", obj_name);
-            ObjectDelete(0, obj_name);
+    string cleanup_patterns[] = {"SSoT_", "SSoT", "Comparison", "Validation", "Health", "Monitor"};
+    
+    for(int p = 0; p < ArraySize(cleanup_patterns); p++) {
+        string pattern = cleanup_patterns[p];
+        for(int i = ObjectsTotal(0, -1, -1) - 1; i >= 0; i--) {
+            string obj_name = ObjectName(0, i, -1, -1);
+            if(StringFind(obj_name, pattern) >= 0) {
+                Print("[CLEANUP] Removing final residual object: ", obj_name);
+                ObjectDelete(0, obj_name);
+            }
         }
     }
     

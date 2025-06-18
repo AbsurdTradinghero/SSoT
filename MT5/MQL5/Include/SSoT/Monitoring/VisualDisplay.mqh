@@ -101,11 +101,10 @@ bool CVisualDisplay::CreateVisualPanel(void)
     // Clean up any existing objects first
     CleanupVisualPanel();    // Create background panel
     string panel_name = m_object_prefix + "Panel";
-    if(ObjectFind(0, panel_name) < 0) {        ObjectCreate(0, panel_name, OBJ_EDIT, 0, 0, 0);  // Using EDIT for guaranteed opacity
-        ObjectSetInteger(0, panel_name, OBJPROP_XDISTANCE, 10);
+    if(ObjectFind(0, panel_name) < 0) {        ObjectCreate(0, panel_name, OBJ_EDIT, 0, 0, 0);  // Using EDIT for guaranteed opacity        ObjectSetInteger(0, panel_name, OBJPROP_XDISTANCE, 10);
         ObjectSetInteger(0, panel_name, OBJPROP_YDISTANCE, 30);
         ObjectSetInteger(0, panel_name, OBJPROP_XSIZE, 1200);
-        ObjectSetInteger(0, panel_name, OBJPROP_YSIZE, 680); // Increased height for better spacing        ObjectSetInteger(0, panel_name, OBJPROP_BGCOLOR, C'0,0,128'); // Dark blue RGB color - fully opaque
+        ObjectSetInteger(0, panel_name, OBJPROP_YSIZE, 750); // Increased height for new layoutObjectSetInteger(0, panel_name, OBJPROP_BGCOLOR, C'0,0,128'); // Dark blue RGB color - fully opaque
         ObjectSetInteger(0, panel_name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
         ObjectSetInteger(0, panel_name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
         ObjectSetInteger(0, panel_name, OBJPROP_COLOR, clrWhite); // White border for better contrast
@@ -599,8 +598,8 @@ void CVisualDisplay::CreateBrokerVsDatabaseComparison(string &symbols[], ENUM_TI
     }    // Create comparison panel header
     string header_obj = m_object_prefix + "ComparisonHeader";
     ObjectCreate(0, header_obj, OBJ_LABEL, 0, 0, 0);
-    ObjectSetInteger(0, header_obj, OBJPROP_XDISTANCE, 500);  // Move to right side
-    ObjectSetInteger(0, header_obj, OBJPROP_YDISTANCE, 120);  // Move up below header
+    ObjectSetInteger(0, header_obj, OBJPROP_XDISTANCE, 20);   // Move to left side to avoid overlap
+    ObjectSetInteger(0, header_obj, OBJPROP_YDISTANCE, 350);  // Move down to avoid overlap with overview
     ObjectSetInteger(0, header_obj, OBJPROP_CORNER, CORNER_LEFT_UPPER);
     ObjectSetInteger(0, header_obj, OBJPROP_FONTSIZE, 12);
     ObjectSetInteger(0, header_obj, OBJPROP_COLOR, clrYellow);
@@ -611,13 +610,13 @@ void CVisualDisplay::CreateBrokerVsDatabaseComparison(string &symbols[], ENUM_TI
     ObjectSetInteger(0, header_obj, OBJPROP_HIDDEN, false);
     
     // Create table headers
-    int start_y = 140;  // Move up below the header
+    int start_y = 370;  // Move down to avoid overlap
     int line_height = 16;
     int col_width = 120;
     
-    // Table headers - move to right side
+    // Table headers - left side to avoid overlap
     string headers[] = {"SYMBOL", "TIMEFRAME", "BROKER BARS", "DATABASE BARS", "DIFFERENCE", "STATUS"};
-    int header_x_positions[] = {500, 580, 680, 780, 880, 980};
+    int header_x_positions[] = {20, 100, 200, 300, 400, 500};
     
     for(int h = 0; h < ArraySize(headers); h++) {
         string header_name = m_object_prefix + "ComparisonTableHeader" + IntegerToString(h);
@@ -728,6 +727,8 @@ void CVisualDisplay::UpdateDataComparisonDisplay(string &symbols[], ENUM_TIMEFRA
 //+------------------------------------------------------------------+
 void CVisualDisplay::CleanupAllObjects(void)
 {
+    Print("[CLEANUP] Starting comprehensive cleanup of all objects...");
+    
     // Basic cleanup of main panel objects
     ObjectDelete(0, m_object_prefix + "Panel");
     ObjectDelete(0, m_object_prefix + "Mode");
@@ -736,14 +737,31 @@ void CVisualDisplay::CleanupAllObjects(void)
     ObjectDelete(0, m_object_prefix + "CopyButton");
     ObjectDelete(0, m_object_prefix + "GenerateButton");
     ObjectDelete(0, m_object_prefix + "DeleteButton");
+    ObjectDelete(0, m_object_prefix + "Header_Main");
+    ObjectDelete(0, m_object_prefix + "RunningTime");
     
-    // Cleanup comparison objects
+    // Cleanup comparison objects (health monitor)
     for(int i = ObjectsTotal(0, -1, -1) - 1; i >= 0; i--) {
         string obj_name = ObjectName(0, i, -1, -1);
-        if(StringFind(obj_name, m_object_prefix + "Comparison") == 0) {
+        if(StringFind(obj_name, m_object_prefix + "Comparison") == 0 ||
+           StringFind(obj_name, m_object_prefix + "Validation") == 0 ||
+           StringFind(obj_name, m_object_prefix + "Health") == 0 ||
+           StringFind(obj_name, m_object_prefix + "Monitor") == 0) {
             ObjectDelete(0, obj_name);
+            Print("[CLEANUP] Removed health monitor object: ", obj_name);
         }
     }
+    
+    // Force cleanup any remaining SSoT objects
+    for(int i = ObjectsTotal(0, -1, -1) - 1; i >= 0; i--) {
+        string obj_name = ObjectName(0, i, -1, -1);
+        if(StringFind(obj_name, m_object_prefix) == 0) {
+            ObjectDelete(0, obj_name);
+            Print("[CLEANUP] Removed remaining SSoT object: ", obj_name);
+        }
+    }
+    
+    Print("[CLEANUP] Comprehensive cleanup completed");
 }
 
 //+------------------------------------------------------------------+
@@ -1227,12 +1245,11 @@ void CVisualDisplay::CreateValidationStatsDisplay(string &symbols[], ENUM_TIMEFR
         if(StringFind(obj_name, m_object_prefix + "Validation") == 0) {
             ObjectDelete(0, obj_name);
         }
-    }
-      // Create validation panel header
+    }    // Create validation panel header
     string header_obj = m_object_prefix + "ValidationHeader";
     ObjectCreate(0, header_obj, OBJ_LABEL, 0, 0, 0);
-    ObjectSetInteger(0, header_obj, OBJPROP_XDISTANCE, 500);  // Align with broker comparison
-    ObjectSetInteger(0, header_obj, OBJPROP_YDISTANCE, 280);  // Below broker comparison
+    ObjectSetInteger(0, header_obj, OBJPROP_XDISTANCE, 20);   // Align with broker comparison (left side)
+    ObjectSetInteger(0, header_obj, OBJPROP_YDISTANCE, 520);  // Well below broker comparison
     ObjectSetInteger(0, header_obj, OBJPROP_CORNER, CORNER_LEFT_UPPER);
     ObjectSetInteger(0, header_obj, OBJPROP_FONTSIZE, 12);
     ObjectSetInteger(0, header_obj, OBJPROP_COLOR, clrLightBlue);
@@ -1243,11 +1260,11 @@ void CVisualDisplay::CreateValidationStatsDisplay(string &symbols[], ENUM_TIMEFR
     ObjectSetInteger(0, header_obj, OBJPROP_HIDDEN, false);
     
     // Create table headers for validation
-    int start_y = 300;  // Below broker comparison
+    int start_y = 540;  // Well below broker comparison
     int line_height = 16;
     
     string val_headers[] = {"SYMBOL", "TIMEFRAME", "VALIDATED", "COMPLETED", "HASH STATUS"};
-    int val_header_x_positions[] = {500, 580, 680, 780, 880};  // Align with broker comparison
+    int val_header_x_positions[] = {20, 100, 200, 300, 400};  // Align with broker comparison
     
     for(int h = 0; h < ArraySize(val_headers); h++) {
         string header_name = m_object_prefix + "ValidationTableHeader" + IntegerToString(h);
