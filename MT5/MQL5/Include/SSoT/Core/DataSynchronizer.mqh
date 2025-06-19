@@ -25,7 +25,6 @@ public:
     
     // Analysis functions
     static int GetBrokerAvailableBars(string symbol, ENUM_TIMEFRAMES timeframe);
-    static int GetCompleteBrokerBars(string symbol, ENUM_TIMEFRAMES timeframe);
     static int GetDatabaseStoredBars(int db_handle, string symbol, ENUM_TIMEFRAMES timeframe);
     static datetime GetOldestBrokerTime(string symbol, ENUM_TIMEFRAMES timeframe);
     static datetime GetNewestBrokerTime(string symbol, ENUM_TIMEFRAMES timeframe);
@@ -35,11 +34,7 @@ public:
     // Gap detection
     static bool HasGaps(int db_handle, string symbol, ENUM_TIMEFRAMES timeframe);
     static int CountMissingBars(int db_handle, string symbol, ENUM_TIMEFRAMES timeframe);
-    
-    // Cleanup operations
-    static bool CleanupExtraBars(int db_handle, string symbol, ENUM_TIMEFRAMES timeframe, datetime latest_broker_time);
-    
-    // Batch operations
+      // Batch operations
     static int FetchHistoricalBatch(int db_handle, string symbol, ENUM_TIMEFRAMES timeframe, 
                                    datetime start_time, int batch_size = 10000);    static bool VerifyDataIntegrity(int db_handle, string symbol, ENUM_TIMEFRAMES timeframe);
     static bool VerifyFullSyncComplete(int db_handle, string &symbols[], ENUM_TIMEFRAMES &timeframes[]);
@@ -108,111 +103,75 @@ bool CDataSynchronizer::PerformFullSync(int db_handle, string symbol, ENUM_TIMEF
 {
     Print("🔄 FullSync: Starting for ", symbol, " ", TimeframeToString(timeframe));
     
-    // Step 1: Get all available broker data (excluding current incomplete bar)
-    MqlRates all_rates[];
-    ArraySetAsSeries(all_rates, true); // Newest first
-    
-    // Get all available bars from broker
-    int bars_available = Bars(symbol, timeframe);
-    if(bars_available <= 0) {
-        Print("❌ FullSync: No bars available for ", symbol, " ", TimeframeToString(timeframe));
+    // Step 1: Get the total available bars from broker
+    int total_available = GetBrokerAvailableBars(symbol, timeframe);
+    if(total_available <= 0) {
+        Print("❌ FullSync: No broker data available for ", symbol, " ", TimeframeToString(timeframe));
         return false;
     }
     
-    int copied = CopyRates(symbol, timeframe, 0, bars_available, all_rates);
-    if(copied <= 0) {
-        Print("❌ FullSync: Failed to copy broker data");
-        return false;
-    }
-    
-    // Determine if the newest bar is incomplete
-    datetime current_time = TimeCurrent();
-    int period_seconds = PeriodSeconds(timeframe);
-    bool newest_is_incomplete = false;
-    
-    if(copied > 0) {
-        datetime newest_bar_time = all_rates[0].time;
-        datetime next_bar_expected = newest_bar_time + period_seconds;
-        newest_is_incomplete = (current_time < next_bar_expected);
-    }
-    
-    // Exclude incomplete bar from sync
-    int complete_bars = newest_is_incomplete ? copied - 1 : copied;
-    
-    Print("📊 FullSync: Broker has ", copied, " total bars, ", complete_bars, " complete bars");
-    if(newest_is_incomplete) {
-        Print("⏰ FullSync: Excluding current incomplete bar at ", TimeToString(all_rates[0].time));
-    }
-    
-    if(complete_bars <= 0) {
-        Print("⚠️ FullSync: No complete bars to sync");
-        return true;
-    }
+    Print("📊 FullSync: ", total_available, " bars available from broker");
     
     // Step 2: Check how many we already have in database
     int db_bars = GetDatabaseStoredBars(db_handle, symbol, timeframe);
     Print("💾 FullSync: ", db_bars, " bars already in database");
     
-    if(db_bars >= complete_bars) {
-        Print("✅ FullSync: Database already synchronized (", db_bars, "/", complete_bars, ")");
+    if(db_bars >= total_available) {
+        Print("✅ FullSync: Database already synchronized (", db_bars, "/", total_available, ")");
         return true;
     }
     
-    // Step 3: Prepare data for insertion (exclude incomplete bar, reverse order for insertion)
-    MqlRates sync_rates[];
-    int sync_count = complete_bars;
+    // Step 3: Fetch all available data using count-based approach (more reliable)
+    const int BATCH_SIZE = 10000;
+    int fetched_total = 0;
+    int remaining = total_available;
+    int start_pos = 0;
     
-    if(newest_is_incomplete) {
-        // Copy all except the first (newest) bar
-        ArrayResize(sync_rates, sync_count);
-        for(int i = 0; i < sync_count; i++) {
-            sync_rates[i] = all_rates[i + 1]; // Skip the first incomplete bar
-        }
-    } else {
-        // Copy all bars
-        ArrayResize(sync_rates, sync_count);
-        for(int i = 0; i < sync_count; i++) {
-            sync_rates[i] = all_rates[i];
-        }
-    }
+    Print("🔄 FullSync: Starting count-based fetch of ", total_available, " bars...");
     
-    // Reverse order for database insertion (oldest first)
-    ArraySetAsSeries(sync_rates, false);
-    
-    Print("🔄 FullSync: Inserting ", sync_count, " complete bars...");
-    Print("📅 FullSync: Time range ", TimeToString(sync_rates[0].time), " to ", TimeToString(sync_rates[sync_count-1].time));
-    
-    // Step 4: Insert using batch approach for better performance
-    const int BATCH_SIZE = 5000;
-    int inserted_total = 0;
-    
-    for(int start = 0; start < sync_count; start += BATCH_SIZE) {
-        int batch_size = MathMin(BATCH_SIZE, sync_count - start);
+    while(remaining > 0 && start_pos < total_available) {
+        int batch_size = MathMin(BATCH_SIZE, remaining);
         
-        MqlRates batch_rates[];
-        ArrayResize(batch_rates, batch_size);
-        ArrayCopy(batch_rates, sync_rates, 0, start, batch_size);
+        MqlRates rates[];
+        ArraySetAsSeries(rates, true); // Newest first
         
+        // Fetch from current position
+        int copied = CopyRates(symbol, timeframe, start_pos, batch_size, rates);
+        if(copied <= 0) {
+            Print("⚠️ FullSync: Failed to copy rates from position ", start_pos);
+            break;
+        }
+        
+        // Insert into database
         string tf_string = TimeframeToString(timeframe);
-        int inserted = BatchInsertWithDuplicateHandling(db_handle, symbol, tf_string, batch_rates, batch_size);
-        inserted_total += inserted;
+        int inserted = BatchInsertWithDuplicateHandling(db_handle, symbol, tf_string, rates, copied);
         
-        Print("📊 FullSync: Batch ", (start/BATCH_SIZE + 1), " - Inserted ", inserted, "/", batch_size, 
-              " bars (Total: ", inserted_total, "/", sync_count, ")");
+        fetched_total += inserted;
+        remaining -= copied;
+        start_pos += copied;
+        
+        Print("📊 FullSync: Batch ", start_pos/BATCH_SIZE + 1, " - Inserted ", inserted, "/", copied, 
+              " bars (Total: ", fetched_total, "/", total_available, ")");
+        
+        // Safety check
+        if(fetched_total > 200000) {
+            Print("⚠️ FullSync: Safety limit reached (200k bars)");
+            break;
+        }
     }
     
-    // Step 5: Verify final sync status
+    // Step 4: Verify final sync status
     int final_db_bars = GetDatabaseStoredBars(db_handle, symbol, timeframe);
-    int missing = complete_bars - final_db_bars;
+    int missing = total_available - final_db_bars;
     
     Print("📊 FullSync Results for ", symbol, " ", TimeframeToString(timeframe), ":");
-    Print("  - Complete broker bars: ", complete_bars);
+    Print("  - Broker bars: ", total_available);
     Print("  - Database bars: ", final_db_bars);
     Print("  - Missing bars: ", missing);
-    Print("  - Sync efficiency: ", (final_db_bars * 100 / complete_bars), "%");
+    Print("  - Sync efficiency: ", (final_db_bars * 100 / total_available), "%");
     
-    if(missing <= 2) { // Very small tolerance
-        Print("✅ FullSync: Successfully synchronized (", final_db_bars, "/", complete_bars, ")");
+    if(missing <= 5) { // Allow small tolerance for very recent bars
+        Print("✅ FullSync: Successfully synchronized (", final_db_bars, "/", total_available, ")");
         return true;
     } else {
         Print("⚠️ FullSync: Partial sync (", missing, " bars still missing)");
@@ -272,39 +231,6 @@ int CDataSynchronizer::GetBrokerAvailableBars(string symbol, ENUM_TIMEFRAMES tim
     available = CopyRates(symbol, timeframe, 0, 10000, rates);
     Print("📊 Broker bars available for ", symbol, " ", TimeframeToString(timeframe), ": ", available, " (limited to 10k)");
     return available > 0 ? available : 0;
-}
-
-//+------------------------------------------------------------------+
-//| Get number of complete bars available from broker              |
-//+------------------------------------------------------------------+
-int CDataSynchronizer::GetCompleteBrokerBars(string symbol, ENUM_TIMEFRAMES timeframe)
-{
-    int total_bars = GetBrokerAvailableBars(symbol, timeframe);
-    if(total_bars <= 0) return 0;
-    
-    // Check if the newest bar is incomplete
-    MqlRates newest_rate[];
-    ArraySetAsSeries(newest_rate, true);
-    int copied = CopyRates(symbol, timeframe, 0, 1, newest_rate);
-    
-    if(copied <= 0) return total_bars; // Can't determine, assume all complete
-    
-    // Check if current time suggests the newest bar is still forming
-    datetime current_time = TimeCurrent();
-    datetime newest_bar_time = newest_rate[0].time;
-    int period_seconds = PeriodSeconds(timeframe);
-    datetime next_bar_expected = newest_bar_time + period_seconds;
-    
-    bool newest_is_incomplete = (current_time < next_bar_expected);
-    
-    int complete_bars = newest_is_incomplete ? total_bars - 1 : total_bars;
-    
-    if(newest_is_incomplete) {
-        Print("⏰ Complete bars for ", symbol, " ", TimeframeToString(timeframe), ": ", complete_bars, 
-              " (excluding incomplete bar at ", TimeToString(newest_bar_time), ")");
-    }
-    
-    return complete_bars;
 }
 
 //+------------------------------------------------------------------+
@@ -527,19 +453,18 @@ bool CDataSynchronizer::VerifyFullSyncComplete(int db_handle, string &symbols[],
             string symbol = symbols[i];
             ENUM_TIMEFRAMES tf = timeframes[j];
             
-            // Get complete bars count (excluding current incomplete bar)
-            int complete_broker_bars = GetCompleteBrokerBars(symbol, tf);
+            int broker_bars = GetBrokerAvailableBars(symbol, tf);
             int db_bars = GetDatabaseStoredBars(db_handle, symbol, tf);
-            int missing = complete_broker_bars - db_bars;
+            int missing = broker_bars - db_bars;
             
-            if(missing > 2) { // Very small tolerance for complete bars
+            if(missing > 5) { // Allow small tolerance
                 Print("⚠️ Sync incomplete: ", symbol, " ", TimeframeToString(tf), 
-                      " - Missing: ", missing, " bars (", db_bars, "/", complete_broker_bars, ")");
+                      " - Missing: ", missing, " bars (", db_bars, "/", broker_bars, ")");
                 all_synced = false;
                 total_missing += missing;
             } else {
                 Print("✅ Sync complete: ", symbol, " ", TimeframeToString(tf), 
-                      " - ", db_bars, "/", complete_broker_bars, " bars");
+                      " - ", db_bars, "/", broker_bars, " bars");
             }
         }
     }
@@ -562,87 +487,45 @@ bool CDataSynchronizer::PerformIncrementalSync(int db_handle, string symbol, ENU
     
     Print("🔄 IncrementalSync: Starting for ", symbol, " ", TimeframeToString(timeframe));
     
-    // NEW APPROACH: Instead of counting bars, check for missing time periods
-    // This avoids the broker vs database bar count inconsistency issue
-    
-    // Step 1: Get the latest complete bar time from database  
+    // Get the latest time we have in database
     datetime latest_db_time = GetNewestDatabaseTime(db_handle, symbol, timeframe);
+    datetime latest_broker_time = GetNewestBrokerTime(symbol, timeframe);
+    
+    if(latest_broker_time == 0) {
+        Print("❌ IncrementalSync: No broker data available");
+        return false;
+    }
     
     if(latest_db_time == 0) {
         Print("📭 IncrementalSync: No database data found, performing full sync");
         return PerformFullSync(db_handle, symbol, timeframe);
     }
     
-    // Step 2: Get all available broker bars (excluding current incomplete bar)
-    MqlRates all_broker_rates[];
-    ArraySetAsSeries(all_broker_rates, true); // Newest first
+    // Check if we need to fetch anything
+    if(latest_db_time >= latest_broker_time) {
+        Print("✅ IncrementalSync: Database is up to date");
+        return true;
+    }
     
-    // Get a reasonable number of recent bars to check for updates
-    int max_check_bars = 100; // Check last 100 bars for any missing data
-    int copied = CopyRates(symbol, timeframe, 0, max_check_bars, all_broker_rates);
+    Print("📅 IncrementalSync: Fetching from ", TimeToString(latest_db_time), " to ", TimeToString(latest_broker_time));
+    
+    // Fetch only the new data since our latest database entry
+    MqlRates rates[];
+    ArraySetAsSeries(rates, false);
+    
+    // Start from the next period after our latest data
+    datetime start_time = latest_db_time + PeriodSeconds(timeframe);
+    int copied = CopyRates(symbol, timeframe, start_time, 1000, rates);
     
     if(copied <= 0) {
-        Print("❌ IncrementalSync: Failed to copy broker data");
-        return false;
+        Print("✅ IncrementalSync: No new data available");
+        return true; // This is normal, not an error
     }
     
-    Print("� IncrementalSync: Checking ", copied, " recent broker bars for updates");
-    
-    // Step 3: Filter to only bars newer than what we have in database
-    // AND exclude the current incomplete bar (if it's the most recent one)
-    MqlRates new_bars[];
-    int new_count = 0;
-    
-    // Determine if the newest bar is the current incomplete bar
-    datetime current_time = TimeCurrent();
-    int period_seconds = PeriodSeconds(timeframe);
-    bool newest_is_incomplete = false;
-    
-    if(copied > 0) {
-        datetime newest_bar_time = all_broker_rates[0].time;
-        datetime next_bar_expected = newest_bar_time + period_seconds;
-        newest_is_incomplete = (current_time < next_bar_expected);
-    }
-    
-    // Start from index 1 if newest bar is incomplete, 0 if it's complete
-    int start_index = newest_is_incomplete ? 1 : 0;
-    
-    ArrayResize(new_bars, copied);
-    for(int i = start_index; i < copied; i++) {
-        // Only include bars newer than our latest database entry
-        if(all_broker_rates[i].time > latest_db_time) {
-            new_bars[new_count] = all_broker_rates[i];
-            new_count++;
-        }
-    }
-    
-    if(new_count == 0) {
-        Print("✅ IncrementalSync: Database is up to date (latest: ", TimeToString(latest_db_time), ")");
-        return true;
-    }
-    
-    // Step 4: Sort new bars chronologically (oldest first for insertion)
-    ArraySetAsSeries(new_bars, false);
-    ArrayResize(new_bars, new_count);
-    
-    Print("📊 IncrementalSync: Found ", new_count, " new complete bars to add");
-    Print("� IncrementalSync: Time range ", TimeToString(new_bars[0].time), " to ", TimeToString(new_bars[new_count-1].time));
-    
-    // Step 5: Insert new bars
     string tf_string = TimeframeToString(timeframe);
-    int inserted = BatchInsertWithDuplicateHandling(db_handle, symbol, tf_string, new_bars, new_count);
-    
-    Print("📊 IncrementalSync: ", inserted, " new bars added for ", symbol, " ", tf_string);
-    
-    // Step 6: Verify success
-    datetime new_latest_db_time = GetNewestDatabaseTime(db_handle, symbol, timeframe);
-    if(new_latest_db_time > latest_db_time) {
-        Print("✅ IncrementalSync: Successfully updated database (latest now: ", TimeToString(new_latest_db_time), ")");
-        return true;
-    } else {
-        Print("⚠️ IncrementalSync: Database was not updated as expected");
-        return false;
-    }
+    int inserted = BatchInsertWithDuplicateHandling(db_handle, symbol, tf_string, rates, copied);
+      Print("📊 IncrementalSync: ", inserted, " new bars added for ", symbol, " ", tf_string);
+    return true;
 }
 
 //+------------------------------------------------------------------+
@@ -652,23 +535,11 @@ string CDataSynchronizer::TimeframeToString(ENUM_TIMEFRAMES tf)
 {
     switch(tf) {
         case PERIOD_M1:  return "M1";
-        case PERIOD_M2:  return "M2";
-        case PERIOD_M3:  return "M3";
-        case PERIOD_M4:  return "M4";
         case PERIOD_M5:  return "M5";
-        case PERIOD_M6:  return "M6";
-        case PERIOD_M10: return "M10";
-        case PERIOD_M12: return "M12";
         case PERIOD_M15: return "M15";
-        case PERIOD_M20: return "M20";
         case PERIOD_M30: return "M30";
         case PERIOD_H1:  return "H1";
-        case PERIOD_H2:  return "H2";
-        case PERIOD_H3:  return "H3";
         case PERIOD_H4:  return "H4";
-        case PERIOD_H6:  return "H6";
-        case PERIOD_H8:  return "H8";
-        case PERIOD_H12: return "H12";
         case PERIOD_D1:  return "D1";
         case PERIOD_W1:  return "W1";
         case PERIOD_MN1: return "MN1";
@@ -720,80 +591,6 @@ int CDataSynchronizer::GetCompleteBarsCount(int db_handle, string symbol, ENUM_T
     DatabaseFinalize(request);
     
     return (int)count;
-}
-
-//+------------------------------------------------------------------+
-//| Cleanup extra bars when database has more bars than broker     |
-//+------------------------------------------------------------------+
-bool CDataSynchronizer::CleanupExtraBars(int db_handle, string symbol, ENUM_TIMEFRAMES timeframe, datetime latest_broker_time)
-{
-    if(db_handle == INVALID_HANDLE) return false;
-    
-    string tf_string = TimeframeToString(timeframe);
-    int db_bars = GetDatabaseStoredBars(db_handle, symbol, timeframe);
-    int broker_bars = GetBrokerAvailableBars(symbol, timeframe);
-    
-    if(db_bars <= broker_bars) {
-        Print("✅ CleanupExtraBars: No extra bars to remove (DB:", db_bars, ", Broker:", broker_bars, ")");
-        return true;
-    }
-    
-    int extra_bars = db_bars - broker_bars;
-    Print("🧹 CleanupExtraBars: DB has ", extra_bars, " extra bars (DB:", db_bars, ", Broker:", broker_bars, ")");
-    
-    // Strategy: Remove the oldest bars that are not present in the broker's available range
-    // First, get the broker's earliest available time
-    MqlRates broker_rates[];
-    int copied = CopyRates(symbol, timeframe, 0, broker_bars, broker_rates);
-    if(copied <= 0) {
-        Print("❌ CleanupExtraBars: Failed to get broker data for cleanup");
-        return false;
-    }
-    
-    datetime earliest_broker_time = broker_rates[copied-1].time; // Oldest broker bar
-    datetime latest_broker_time_actual = broker_rates[0].time;   // Newest broker bar
-    
-    // Remove bars older than broker's earliest OR newer than broker's latest
-    string delete_sql = StringFormat("DELETE FROM AllCandleData WHERE asset_symbol='%s' AND timeframe='%s' AND (timestamp < %I64d OR timestamp > %I64d)", 
-                                    symbol, tf_string, earliest_broker_time, latest_broker_time_actual);
-    
-    if(!DatabaseTransactionBegin(db_handle)) return false;
-    
-    bool success = DatabaseExecute(db_handle, delete_sql);
-    if(success) {
-        DatabaseTransactionCommit(db_handle);
-        
-        // Verify the cleanup worked
-        int final_db_bars = GetDatabaseStoredBars(db_handle, symbol, timeframe);
-        int remaining_extra = final_db_bars - broker_bars;
-        
-        Print("✅ CleanupExtraBars: Removed bars outside broker range for ", symbol, " ", tf_string);
-        Print("📊 CleanupExtraBars: Final count - DB:", final_db_bars, ", Broker:", broker_bars, ", Remaining extra:", remaining_extra);
-        
-        // If we still have extra bars, remove the oldest ones by count
-        if(remaining_extra > 0) {
-            Print("🧹 CleanupExtraBars: Still have ", remaining_extra, " extra bars, removing oldest by count");
-            string delete_oldest_sql = StringFormat("DELETE FROM AllCandleData WHERE asset_symbol='%s' AND timeframe='%s' AND timestamp IN (SELECT timestamp FROM AllCandleData WHERE asset_symbol='%s' AND timeframe='%s' ORDER BY timestamp ASC LIMIT %d)", 
-                                                   symbol, tf_string, symbol, tf_string, remaining_extra);
-            
-            if(DatabaseTransactionBegin(db_handle)) {
-                if(DatabaseExecute(db_handle, delete_oldest_sql)) {
-                    DatabaseTransactionCommit(db_handle);
-                    int final_final_db_bars = GetDatabaseStoredBars(db_handle, symbol, timeframe);
-                    Print("✅ CleanupExtraBars: Final cleanup - DB:", final_final_db_bars, ", Broker:", broker_bars);
-                } else {
-                    DatabaseTransactionRollback(db_handle);
-                    Print("❌ CleanupExtraBars: Failed to remove oldest extra bars");
-                }
-            }
-        }
-        
-        return true;
-    } else {
-        DatabaseTransactionRollback(db_handle);
-        Print("❌ CleanupExtraBars: Failed to remove extra bars");
-        return false;
-    }
 }
 
 //+------------------------------------------------------------------+

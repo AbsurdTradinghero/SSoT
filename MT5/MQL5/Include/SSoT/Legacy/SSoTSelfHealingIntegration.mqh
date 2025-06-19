@@ -6,7 +6,7 @@
 #property version   "1.00"
 #property strict
 
-#include <SSoT/SelfHealing/Components/SelfHealingManager.mqh>
+#include <SSoT/SelfHealing/SelfHealingManager.mqh>
 
 //+------------------------------------------------------------------+
 //| SSoT Self-Healing Integration Class                             |
