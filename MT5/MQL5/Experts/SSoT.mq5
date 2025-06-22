@@ -104,56 +104,111 @@ int OnInit()
     }
     
     g_test_mode_active = EnableTestMode;
-    
-    // Open database connections
-    Print("[DB] Opening database connections...");
+      // Open database connections with intelligent fallback strategy
+    Print("[DB] ================================================================");
+    Print("[DB] SSoT Database Connection Manager v4.10");
+    Print("[DB] ================================================================");
     Print("[DB] Terminal Data Path: " + TerminalInfoString(TERMINAL_DATA_PATH));
     Print("[DB] Common Files Path: " + TerminalInfoString(TERMINAL_COMMONDATA_PATH));
+    Print("[DB] Test Mode: ", (g_test_mode_active ? "ENABLED" : "DISABLED"));
     
     // Reset last error before attempting connections
     ResetLastError();
-      // Open main database (LOCAL, not COMMON for portable setup)
+    
+    // Open main database with intelligent fallback strategy
     string main_db_path = MainDatabase;
+    Print("[DB] Attempting main database connection: ", main_db_path);
+    
+    // Strategy 1: READ/WRITE with CREATE (preferred for portable setup)
     g_main_db = DatabaseOpen(main_db_path, DATABASE_OPEN_READWRITE | DATABASE_OPEN_CREATE);
     int main_error = GetLastError();
     
     if(g_main_db == INVALID_HANDLE) {
-        Print("[DB] WARNING: Could not open main database with READ/WRITE, Error: ", main_error);
-        ResetLastError();        g_main_db = DatabaseOpen(main_db_path, DATABASE_OPEN_READONLY);
+        Print("[DB] Strategy 1 failed (READ/WRITE + CREATE), Error: ", main_error, " - Trying Strategy 2");
+        ResetLastError();
+        
+        // Strategy 2: READ/WRITE only
+        g_main_db = DatabaseOpen(main_db_path, DATABASE_OPEN_READWRITE);
         main_error = GetLastError();
         
         if(g_main_db == INVALID_HANDLE) {
-            Print("[DB] ERROR: Could not open main database with READONLY, Error: ", main_error);
-            // Try without COMMON flag
+            Print("[DB] Strategy 2 failed (READ/WRITE), Error: ", main_error, " - Trying Strategy 3");
             ResetLastError();
+            
+            // Strategy 3: READONLY fallback
             g_main_db = DatabaseOpen(main_db_path, DATABASE_OPEN_READONLY);
-            main_error = GetLastError();                if(g_main_db == INVALID_HANDLE) {
-                    Print("[DB] CRITICAL: Main database failed all connection attempts, Error: ", main_error);                } else {
-                    Print("[DB] SUCCESS: Main database connected (READONLY, local): ", main_db_path);
-                }} else {
-            Print("[DB] SUCCESS: Main database connected (READONLY, common): ", main_db_path);
-        }} else {
-        Print("[DB] SUCCESS: Main database connected (READ/WRITE, common): ", main_db_path);
+            main_error = GetLastError();
+            
+            if(g_main_db == INVALID_HANDLE) {
+                Print("[DB] CRITICAL: All main database connection strategies failed, Error: ", main_error);
+                return INIT_FAILED;
+            } else {
+                Print("[DB] SUCCESS: Main database connected (READONLY fallback): ", main_db_path);
+            }
+        } else {
+            Print("[DB] SUCCESS: Main database connected (READ/WRITE): ", main_db_path);
+        }
+    } else {
+        Print("[DB] SUCCESS: Main database connected (READ/WRITE + CREATE): ", main_db_path);
     }
     
+    // Open test databases if test mode is enabled
     if(g_test_mode_active) {
+        Print("[DB] Opening test mode databases...");
+        
+        // Test Input Database
         string test_input_path = TestInputDB;
         g_test_input_db = DatabaseOpen(test_input_path, DATABASE_OPEN_READWRITE | DATABASE_OPEN_CREATE);
+        int input_error = GetLastError();
+        
+        if(g_test_input_db == INVALID_HANDLE) {
+            Print("[DB] ERROR: Failed to create test input database: ", test_input_path, ", Error: ", input_error);
+            return INIT_FAILED;
+        } else {
+            Print("[DB] SUCCESS: Test input database connected: ", test_input_path);
+        }
+        
+        // Test Output Database
         string test_output_path = TestOutputDB;
         g_test_output_db = DatabaseOpen(test_output_path, DATABASE_OPEN_READWRITE | DATABASE_OPEN_CREATE);
-    }
-    // --- Unified DB structure setup ---
+        int output_error = GetLastError();
+        
+        if(g_test_output_db == INVALID_HANDLE) {
+            Print("[DB] ERROR: Failed to create test output database: ", test_output_path, ", Error: ", output_error);
+            return INIT_FAILED;
+        } else {
+            Print("[DB] SUCCESS: Test output database connected: ", test_output_path);
+        }
+        
+        Print("[DB] Test mode: 3-database sandbox environment ready");
+    }    // --- Enhanced Database Structure Setup & Validation ---
+    Print("[DB] ================================================================");
+    Print("[DB] Database Structure Setup & Validation");
+    Print("[DB] ================================================================");
+    
     if(!CDatabaseSetup::SetupAllDatabases(g_main_db, g_test_input_db, g_test_output_db, g_test_mode_active)) {
-        Print("❌ ERROR: Unified database setup failed");
+        Print("[DB] ❌ ERROR: Unified database setup failed");
         return INIT_FAILED;
     }
     
-    // Diagnostic: Print all DB handles and their intended file paths
-    Print("[DEBUG] DB Handles: Main=", g_main_db, " (", main_db_path, ") | TestInput=", g_test_input_db, " (", TestInputDB, ") | TestOutput=", g_test_output_db, " (", TestOutputDB, ")");
+    // Perform comprehensive database validation
+    if(!CDatabaseSetup::ValidateAllDatabases(g_main_db, g_test_input_db, g_test_output_db, g_test_mode_active)) {
+        Print("[DB] ❌ ERROR: Database validation failed");
+        return INIT_FAILED;
+    }
     
-    Print("[DB] Database connection summary - Main: ", (g_main_db != INVALID_HANDLE ? "CONNECTED" : "FAILED"), 
-          ", Input: ", (g_test_input_db != INVALID_HANDLE ? "CONNECTED" : "FAILED"),
-          ", Output: ", (g_test_output_db != INVALID_HANDLE ? "CONNECTED" : "FAILED"));
+    // Database connection summary
+    Print("[DB] ================================================================");
+    Print("[DB] Database Connection Summary:");
+    Print("[DB]   Main DB: ", (g_main_db != INVALID_HANDLE ? "CONNECTED" : "FAILED"), " (", main_db_path, ")");
+    if(g_test_mode_active) {
+        Print("[DB]   Test Input DB: ", (g_test_input_db != INVALID_HANDLE ? "CONNECTED" : "FAILED"), " (", TestInputDB, ")");
+        Print("[DB]   Test Output DB: ", (g_test_output_db != INVALID_HANDLE ? "CONNECTED" : "FAILED"), " (", TestOutputDB, ")");
+        Print("[DB]   Sandbox Environment: OPERATIONAL");
+    } else {
+        Print("[DB]   Test Databases: DISABLED (Live Mode)");
+    }
+    Print("[DB] ================================================================");
     
     // Initialize test panel
     g_test_panel = new CTestPanelRefactored();

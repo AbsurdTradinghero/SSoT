@@ -9,8 +9,8 @@ This guide provides comprehensive instructions for correctly compiling MQL5 Expe
 ## 🔧 Compilation Methods
 
 ### 1. IDE-Exact Compilation Script (Recommended)
-
-**File**: `ide_exact_compile.ps1`  
+ cd "c:\MT5Dev5" ; .\build\ide_exact_compile.ps1 "SSoT.mq5"
+**File**: 
 **Purpose**: Uses identical parameters as the MetaEditor IDE for consistent results  
 **Status**: ✅ Production Ready  
 
